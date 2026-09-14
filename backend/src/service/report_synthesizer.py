@@ -334,8 +334,19 @@ class ReportSynthesizerService:
                 logger.warning(f"Full evaluation upsert failed ({err}), attempting fallback...")
                 try:
                     fallback_record = dict(evaluation_record)
-                    if "candidate_recommendation" in str(err) and "INCONCLUSIVE" in str(err):
+                    err_str = str(err)
+                    # Guard: INCONCLUSIVE recommendation enum not yet in DB
+                    if "candidate_recommendation" in err_str and "INCONCLUSIVE" in err_str:
                         fallback_record["recommendation"] = "LEAN_REJECT"
+                    # Guard: overall_score NOT NULL violation (premature/incomplete interview)
+                    # Substitute 0.0 sentinel until migration 010 makes the column nullable.
+                    if "overall_score" in err_str and "not-null" in err_str.lower():
+                        if fallback_record.get("overall_score") is None:
+                            fallback_record["overall_score"] = 0.0
+                            logger.warning(
+                                f"Substituting overall_score=0.0 for INCONCLUSIVE session {s_id} "
+                                f"due to NOT NULL constraint. Apply migration 010 to allow NULL scores."
+                            )
                     self.supabase.table("interview_evaluations").upsert(
                         fallback_record, on_conflict="session_id"
                     ).execute()
