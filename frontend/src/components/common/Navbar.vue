@@ -38,7 +38,7 @@ function handleLogout() {
           <span class="material-symbols-outlined fill text-[20px]">psychology</span>
         </div>
         <div class="flex items-center">
-          <span class="text-sm font-semibold tracking-tight text-on-surface">Vetra <span class="ai-gradient-text font-bold">AI</span></span>
+          <span class="text-sm font-semibold tracking-tight text-on-surface">Vetra <span class="text-primary font-bold">AI</span></span>
         </div>
       </router-link>
 

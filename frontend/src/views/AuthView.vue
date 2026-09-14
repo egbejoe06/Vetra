@@ -78,14 +78,14 @@ async function handleSubmit() {
           <!-- Brand / Logo -->
           <div class="flex items-center gap-3 text-primary text-xl">
             <span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">psychology</span>
-            <span class="font-bold tracking-tight text-on-surface">Vetra <span class="ai-gradient-text">AI</span></span>
+            <span class="font-bold tracking-tight text-on-surface">Vetra <span class="text-primary font-bold">AI</span></span>
           </div>
 
           <!-- Tagline -->
           <div class="flex flex-col gap-4">
             <h1 class="text-4xl lg:text-5xl font-bold leading-tight text-on-surface">
               Hire smarter,<br />
-              <span class="ai-gradient-text">not harder.</span>
+              <span class="text-primary">not harder.</span>
             </h1>
             <p class="text-sm lg:text-base text-on-surface-variant max-w-md leading-relaxed">
               Experience the future of technical interviewing with our intelligent assessment platform. Uncover true engineering potential with deep architectural and live coding analysis.
@@ -113,7 +113,7 @@ async function handleSubmit() {
           <!-- Mobile Logo (Visible only on small screens) -->
           <div class="flex lg:hidden items-center justify-center gap-2 text-primary text-xl mb-1">
             <span class="material-symbols-outlined text-[26px]" style="font-variation-settings: 'FILL' 1;">psychology</span>
-            <span class="font-bold tracking-tight text-on-surface">Vetra <span class="ai-gradient-text">AI</span></span>
+            <span class="font-bold tracking-tight text-on-surface">Vetra <span class="text-primary font-bold">AI</span></span>
           </div>
 
           <!-- Segmented Control (Sign In / Sign Up) -->
@@ -254,7 +254,6 @@ async function handleSubmit() {
               class="group w-full bg-primary text-on-primary font-semibold text-xs py-3.5 rounded-full mt-2 hover:bg-primary-fixed transition-all duration-300 flex items-center justify-center gap-2 relative overflow-hidden shadow-lg"
               :disabled="authStore.isLoading"
             >
-              <div class="absolute inset-0 ai-gradient-bg opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
               <span>{{ authStore.isLoading ? 'Authenticating...' : mode === 'signin' ? 'Sign In' : 'Create Account' }}</span>
               <span class="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform duration-300">
                 {{ authStore.isLoading ? 'sync' : 'arrow_forward' }}

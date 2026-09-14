@@ -5,24 +5,16 @@ import CandidateLobby from '@/views/CandidateLobby.vue'
 import InterviewRoom from '@/views/InterviewRoom.vue'
 import ScorecardView from '@/views/ScorecardView.vue'
 import AuthView from '@/views/AuthView.vue'
+import LandingView from '@/views/LandingView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      redirect: () => {
-        const userJson = localStorage.getItem('vetra_auth_user')
-        if (userJson) {
-          try {
-            const user = JSON.parse(userJson)
-            if (user?.role === 'candidate' || user?.user_metadata?.role === 'candidate') {
-              return '/candidate'
-            }
-          } catch {}
-        }
-        return '/recruiter'
-      },
+      name: 'landing',
+      component: LandingView,
+      meta: { hideNavbar: true },
     },
     {
       path: '/auth',

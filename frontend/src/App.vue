@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import Navbar from '@/components/common/Navbar.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
+
+const route = useRoute()
 </script>
 
 <template>
   <div class="h-screen w-screen flex flex-col bg-background text-on-surface overflow-hidden">
     <!-- Main Top Navigation -->
-    <Navbar />
+    <Navbar v-if="!route.meta?.hideNavbar" />
 
     <!-- Global Toast & Error Notifications -->
     <ToastContainer />
