@@ -70,13 +70,7 @@ export const useInterviewStore = defineStore('interview', () => {
     try {
       const params = recruiterId && recruiterId.trim() ? { recruiter_id: recruiterId.trim() } : undefined
       const res = await api.listInterviews(params)
-      // If filtering by specific recruiter_id returned nothing, fallback to fetching all available templates
-      if ((!res || res.length === 0) && params) {
-        const all = await api.listInterviews()
-        interviewsList.value = all || []
-      } else {
-        interviewsList.value = res || []
-      }
+      interviewsList.value = res || []
     } catch (err: any) {
       errorMessage.value = err.message
     } finally {

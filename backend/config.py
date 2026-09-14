@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # Supabase & Database Configuration
     SUPABASE_URL: str = Field(default="", description="Supabase project endpoint URL")
     SUPABASE_KEY: str = Field(default="", description="Supabase Anon API key")
+    # Service role key bypasses RLS — must be set on the backend deployment (never exposed to frontend)
+    SUPABASE_SERVICE_KEY: str = Field(default="", description="Supabase Service Role key (bypasses RLS for backend queries)")
 
     # AI & LLM Service Credentials
     GOOGLE_API_KEY: str = Field(default="", description="Google Gemini API Key for Gemini Live speech-to-speech")

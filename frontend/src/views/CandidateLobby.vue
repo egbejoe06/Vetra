@@ -16,8 +16,8 @@ const interviewStore = useInterviewStore()
 const candidateStore = useCandidateStore()
 
 const roomCode = ref('')
-const candidateName = ref(authStore.candidateName || 'Alex Rivera')
-const candidateEmail = ref(authStore.candidateEmail || 'alex.rivera@example.com')
+const candidateName = ref(authStore.candidateName || '')
+const candidateEmail = ref(authStore.candidateEmail || '')
 
 // Camera & Mic states — start explicitly OFF (do not turn on automatically)
 const isCameraEnabled = ref(false)

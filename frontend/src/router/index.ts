@@ -29,6 +29,7 @@ const router = createRouter({
       path: '/recruiter',
       name: 'recruiter-dashboard',
       component: RecruiterDashboard,
+      meta: { requiresAuth: true },
     },
     {
       path: '/candidate',
@@ -53,17 +54,29 @@ const router = createRouter({
       path: '/session/:sessionId',
       name: 'interview-room',
       component: InterviewRoom,
+      meta: { requiresAuth: true },
     },
     {
       path: '/evaluations/:sessionId',
       name: 'scorecard-view',
       component: ScorecardView,
+      meta: { requiresAuth: true },
     },
     {
       path: '/:pathMatch(.*)*',
       redirect: '/recruiter',
     },
   ],
+})
+
+// Protect recruiter routes — redirect to /auth if no token is present
+router.beforeEach((to) => {
+  if (to.meta.requiresAuth) {
+    const token = localStorage.getItem('vetra_access_token')
+    if (!token) {
+      return { path: '/auth', query: { redirect: to.fullPath } }
+    }
+  }
 })
 
 export default router
