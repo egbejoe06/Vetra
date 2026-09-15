@@ -242,7 +242,7 @@ class InterviewEvaluationCreate(BaseModel):
     interview_id: UUID
     candidate_id: Optional[UUID] = None
     candidate_name: str
-    overall_score: float = Field(..., ge=0.0, le=10.0)
+    overall_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     recommendation: CandidateRecommendation
     summary: str
     key_strengths: List[str] = Field(default_factory=list)
@@ -260,7 +260,7 @@ class InterviewEvaluationResponse(BaseModel):
     interview_id: UUID
     candidate_id: Optional[UUID] = None
     candidate_name: str
-    overall_score: float = Field(..., ge=0.0, le=10.0)
+    overall_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     recommendation: CandidateRecommendation
     summary: str
     key_strengths: List[str]

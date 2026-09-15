@@ -15,7 +15,7 @@ from src.models.enums import (
 class RubricScore(BaseModel):
     """Evaluation score for a specific rubric category"""
     category: str
-    score: float = Field(..., ge=1.0, le=5.0)
+    score: Optional[float] = Field(default=None, ge=1.0, le=5.0)
     weight: Optional[float] = None
     feedback: str
     verified_turn_ids: List[str] = Field(default_factory=list)
@@ -26,7 +26,7 @@ class QuestionScore(BaseModel):
     """Evaluation score for a specific interview question"""
     question_id: Optional[UUID] = None
     question_text: str
-    score: float = Field(..., ge=1.0, le=5.0)
+    score: Optional[float] = Field(default=None, ge=1.0, le=5.0)
     feedback: str
     verified_turn_ids: List[str] = Field(default_factory=list)
 
@@ -160,7 +160,7 @@ class InterviewEvaluation(BaseModel):
     interview_id: UUID
     candidate_id: Optional[UUID] = None
     candidate_name: str
-    overall_score: float = Field(..., ge=0.0, le=10.0)
+    overall_score: Optional[float] = Field(default=None, ge=0.0, le=10.0)
     recommendation: CandidateRecommendation
     summary: str
     key_strengths: List[str] = Field(default_factory=list)

@@ -255,18 +255,26 @@ class PlannerService:
                             logger.debug(f"Could not update session_id on problem: {err}")
                     return {"status": "ALREADY_EXISTS", "problem_id": problem_id}
 
-            # Query all previously generated problem titles for this interview to avoid duplicates on redo
+            # Query the N most-recent exercise titles for this interview (sliding window).
+            # Capped so the list never grows infinitely across unlimited retries, keeping
+            # the LLM "avoid-repeat" context tight and prompt size bounded.
+            EXERCISE_HISTORY_WINDOW = 5
             previous_titles = []
             try:
                 prev_problems = (
                     self.supabase.table("technical_problems")
                     .select("title")
                     .eq("interview_id", str(interview_id))
+                    .order("created_at", desc=True)
+                    .limit(EXERCISE_HISTORY_WINDOW)
                     .execute()
                 )
                 previous_titles = [p["title"] for p in (prev_problems.data or []) if p.get("title")]
                 if previous_titles:
-                    logger.info(f"Found {len(previous_titles)} prior problem(s) for interview {interview_id}: {previous_titles}. Guaranteeing fresh scenario.")
+                    logger.info(
+                        f"Found {len(previous_titles)} prior problem(s) for interview {interview_id} "
+                        f"(sliding window={EXERCISE_HISTORY_WINDOW}): {previous_titles}. Guaranteeing fresh scenario."
+                    )
             except Exception as prev_err:
                 logger.debug(f"Could not query previous problems: {prev_err}")
 
