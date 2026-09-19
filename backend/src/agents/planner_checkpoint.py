@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from src.schemas.planner import (
     CandidateProfile,
     CodingExerciseAsset,
+    CodingExerciseContract,
     InterviewBlueprint,
     InterviewerGuidance,
     InterviewPlan,
@@ -26,6 +27,7 @@ logger = logging.getLogger("vetra.agents.planner_checkpoint")
 
 class CheckpointStep(str):
     STEP_1_DRAFT = "STEP_1_PLAN_DRAFT"
+    STEP_2A_CONTRACT = "STEP_2A_EXERCISE_CONTRACT"
     STEP_2_EXERCISES = "STEP_2_EXERCISES"
     STEP_3_FINAL_PLAN = "STEP_3_FINAL_PLAN"
     COMPLETED = "COMPLETED"
@@ -57,6 +59,9 @@ class PlannerCheckpoint(BaseModel):
     intro_questions: List[InterviewQuestion] = Field(default_factory=list)
     questions: List[InterviewQuestion] = Field(default_factory=list)
     behavioral_questions: List[InterviewQuestion] = Field(default_factory=list)
+
+    # Step 2A Artifacts (Scenario contract preserved across code retries)
+    exercise_contract: Optional[CodingExerciseContract] = None
 
     # Step 2 Artifacts (Preserved across any Step 3 failures)
     coding_exercise: Optional[CodingExerciseAsset] = None
@@ -170,6 +175,28 @@ class PlannerCheckpointManager:
                 cp.status = "STEP_1_COMPLETE"
                 cp.updated_at = datetime.now(timezone.utc)
                 logger.info(f"[Checkpoint {checkpoint_id}] Step 1 Draft saved (Blueprint + {len(questions)} questions).")
+
+    def save_step_2a_contract(
+        self,
+        checkpoint_id: str,
+        contract: CodingExerciseContract,
+    ) -> None:
+        """Saves Step 2A Exercise Contract to checkpoint.
+        
+        The contract is frozen and immutable across subsequent code generation attempts,
+        ensuring code generation retries reuse the exact same scenario.
+        """
+        with self._lock:
+            cp = self._checkpoints.get(checkpoint_id)
+            if cp:
+                cp.exercise_contract = contract
+                cp.step = CheckpointStep.STEP_2A_CONTRACT
+                cp.status = "STEP_2A_CONTRACT_SAVED"
+                cp.updated_at = datetime.now(timezone.utc)
+                logger.info(
+                    f"[Checkpoint {checkpoint_id}] Step 2A Exercise Contract STORED. "
+                    f"Contract ID: {contract.contract_id}, Domain: '{contract.scenario.domain}'."
+                )
 
     def save_step_2_exercises(
         self,

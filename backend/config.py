@@ -106,6 +106,10 @@ class Settings(BaseSettings):
         default=0,
         description="Thinking token budget for Gemini models (0 disables thinking for fast structured JSON generation)"
     )
+    GEMINI_CONTRACT_THINKING_BUDGET: int = Field(
+        default=4000,
+        description="Thinking token budget for Step 2A Exercise Contract generation (scenario & failure mechanism design)"
+    )
 
     # Redis & Async Task Workers
     REDIS_URL: str = Field(

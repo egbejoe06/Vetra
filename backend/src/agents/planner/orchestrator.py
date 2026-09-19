@@ -7,16 +7,18 @@ from src.agents.planner.exceptions import PlannerPipelineError
 from src.agents.planner.generators import (
     BlueprintGenerator,
     CodingExerciseGenerator,
+    ExerciseContractGenerator,
     QuestionGenerator,
     RubricGenerator,
     SystemDesignGenerator,
 )
 from src.agents.planner_checkpoint import CheckpointStep, planner_checkpoint_manager
-from src.agents.planner_validators import validate_interview_plan
+from src.agents.planner_validators import validate_contract, validate_interview_plan
 from src.models.enums import InterviewStage
 from src.schemas.planner import (
     CandidateProfile,
     CodingExerciseAsset,
+    CodingExerciseContract,
     InterviewBlueprint,
     InterviewPlan,
     InterviewPlanCreate,
@@ -80,6 +82,7 @@ class InterviewPlannerAgent:
         # Sub-generators
         self.blueprint_generator = BlueprintGenerator(self.llm_client)
         self.question_generator = QuestionGenerator(self.llm_client)
+        self.contract_generator = ExerciseContractGenerator(self.llm_client)
         self.coding_generator = CodingExerciseGenerator(self.llm_client)
         self.system_design_generator = SystemDesignGenerator(self.llm_client)
         self.rubric_generator = RubricGenerator(self.llm_client)
@@ -115,6 +118,22 @@ class InterviewPlannerAgent:
     ) -> Optional[Tuple[List[InterviewQuestion], List[InterviewQuestion], List[InterviewQuestion]]]:
         return self.question_generator.generate_kimi(profile, job_spec, blueprint)
 
+    def _generate_exercise_contract(
+        self,
+        profile: CandidateProfile,
+        job_spec: InterviewPlanCreate,
+        blueprint: InterviewBlueprint,
+        diagnostic_list: Optional[List[Dict[str, Any]]] = None,
+        previous_contracts: Optional[List[str]] = None,
+    ) -> Optional[CodingExerciseContract]:
+        return self.contract_generator.generate(
+            profile=profile,
+            job_spec=job_spec,
+            blueprint=blueprint,
+            diagnostic_list=diagnostic_list,
+            previous_contracts=previous_contracts,
+        )
+
     def _generate_coding_exercise_gemini(
         self,
         profile: CandidateProfile,
@@ -122,8 +141,16 @@ class InterviewPlannerAgent:
         blueprint: InterviewBlueprint,
         retry_hint: str = "",
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
+        contract: Optional[CodingExerciseContract] = None,
     ) -> CodingExerciseAsset:
-        return self.coding_generator.generate_gemini(profile, job_spec, blueprint, retry_hint, diagnostic_list)
+        return self.coding_generator.generate_gemini(
+            profile=profile,
+            job_spec=job_spec,
+            blueprint=blueprint,
+            retry_hint=retry_hint,
+            diagnostic_list=diagnostic_list,
+            contract=contract,
+        )
 
     def _generate_coding_exercise_kimi(
         self,
@@ -132,8 +159,16 @@ class InterviewPlannerAgent:
         blueprint: InterviewBlueprint,
         retry_hint: str = "",
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
+        contract: Optional[CodingExerciseContract] = None,
     ) -> Optional[CodingExerciseAsset]:
-        return self.coding_generator.generate_kimi(profile, job_spec, blueprint, retry_hint, diagnostic_list)
+        return self.coding_generator.generate_kimi(
+            profile=profile,
+            job_spec=job_spec,
+            blueprint=blueprint,
+            retry_hint=retry_hint,
+            diagnostic_list=diagnostic_list,
+            contract=contract,
+        )
 
     def _generate_system_design_exercise(
         self,
@@ -238,13 +273,59 @@ class InterviewPlannerAgent:
                 "Skipping system design exercise generation as technical assessment is focused on hands-on codebase investigation."
             )
 
-        # Generate coding exercise
+        # ---------------------------------------------------------------------
+        # SUB-STEP 2A: Exercise Contract Generation & Immutability Checkpoint
+        # ---------------------------------------------------------------------
+        contract: Optional[CodingExerciseContract] = None
+        if not force_refresh and checkpoint.exercise_contract:
+            is_valid_c, _ = validate_contract(checkpoint.exercise_contract)
+            if is_valid_c:
+                contract = checkpoint.exercise_contract
+                logger.info(
+                    f"[Checkpoint {cp_id}] Reusing valid frozen Exercise Contract '{contract.contract_id}' "
+                    f"from checkpoint (Domain: '{contract.scenario.domain}')."
+                )
+
+        if not contract:
+            logger.info(f"[Checkpoint {cp_id}] Step 2A: Generating Coding Exercise Contract (Scenario & Failure Blueprint)...")
+            contract = self.contract_generator.generate(
+                profile=profile,
+                job_spec=job_spec,
+                blueprint=blueprint,
+                diagnostic_list=diagnostic_errors,
+                previous_contracts=previous_exercises,
+            )
+
+            if not contract:
+                diag_lines = [
+                    f"  - [{d.get('provider', '').upper()}] {d.get('error_type', 'Error')}: {d.get('message', '')}"
+                    for d in diagnostic_errors
+                ]
+                diag_summary = "\n".join(diag_lines) if diag_lines else "No provider error telemetry captured."
+                err_msg = f"Failed to generate CodingExerciseContract using Gemini Flash.\nDiagnostic details:\n{diag_summary}"
+                planner_checkpoint_manager.record_step_failure(cp_id, CheckpointStep.STEP_2A_CONTRACT, err_msg)
+                raise PlannerPipelineError(
+                    message=err_msg,
+                    step=CheckpointStep.STEP_2A_CONTRACT,
+                    checkpoint_id=cp_id,
+                    diagnostic_errors=diagnostic_errors,
+                    can_retry_with_checkpoint=True,
+                )
+
+            # Freeze contract in checkpoint
+            planner_checkpoint_manager.save_step_2a_contract(checkpoint_id=cp_id, contract=contract)
+
+        # ---------------------------------------------------------------------
+        # SUB-STEP 2B: Multi-File Code Generation from Contract
+        # ---------------------------------------------------------------------
+        logger.info(f"[Checkpoint {cp_id}] Step 2B: Implementing code for contract '{contract.contract_id}'...")
         coding_exercise = self.coding_generator.generate(
             profile=profile,
             job_spec=job_spec,
             blueprint=blueprint,
             diagnostic_list=diagnostic_errors,
             previous_exercises=previous_exercises,
+            contract=contract,
         )
 
         if not coding_exercise:
@@ -253,7 +334,7 @@ class InterviewPlannerAgent:
                 for d in diagnostic_errors
             ]
             diag_summary = "\n".join(diag_lines) if diag_lines else "No provider error telemetry captured."
-            err_msg = f"Failed to generate coding exercise using Gemini Flash after retries.\nDiagnostic details:\n{diag_summary}"
+            err_msg = f"Failed to generate coding exercise from contract using Gemini Flash after retries.\nDiagnostic details:\n{diag_summary}"
             planner_checkpoint_manager.record_step_failure(cp_id, CheckpointStep.STEP_2_EXERCISES, err_msg)
             raise PlannerPipelineError(
                 message=err_msg,

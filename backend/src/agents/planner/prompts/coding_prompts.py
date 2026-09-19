@@ -2,6 +2,7 @@ from typing import Optional
 
 from src.schemas.planner import (
     CandidateProfile,
+    CodingExerciseContract,
     InterviewBlueprint,
     InterviewPlanCreate,
     TechnologyEnvironment,
@@ -266,4 +267,75 @@ def build_coding_exercise_user_prompt(
         f"4. Priority 4 (Meaningful component interactions): At least 3 logical components across 2–3 files; at least 2 components transform/manage state; NO shallow pass-through layers or trivial mocks.\n"
         f"5. Priority 5 (Code density requirement): 150–300 LOC budget total (target 150–250 LOC). Do not minimize implementation depth into toy code.\n"
         f"6. Pass the mandatory Codebase Self-Review before outputting."
+    )
+
+
+def build_coding_exercise_user_prompt_from_contract(
+    contract: CodingExerciseContract,
+    profile: CandidateProfile,
+    job_spec: InterviewPlanCreate,
+    blueprint: InterviewBlueprint,
+    target_lang: str,
+    target_ext: str,
+    ecosystem: TechnologyEnvironment,
+    retry_hint: str = "",
+    schema_target: str = "CodingExerciseAsset",
+) -> str:
+    seniority_diff, seniority_reason = resolve_seniority_tier(
+        seniority=getattr(job_spec, "seniority", None),
+        job_title=job_spec.job_title,
+        years_of_experience=job_spec.years_of_experience,
+        instructions=job_spec.instructions or "",
+    )
+    seniority_guidance = get_seniority_complexity_guidance(seniority_diff)
+
+    arch_reqs = "\n".join(f"- {req}" for req in contract.architecture_requirements)
+    failure_reqs = "\n".join(f"- {req}" for req in contract.failure_requirements)
+    tested_on = "\n".join(f"- {item}" for item in contract.candidate_should_be_tested_on)
+    avoid_list = "\n".join(f"- {item}" for item in contract.implementation_constraints.avoid) if contract.implementation_constraints.avoid else "None specified beyond base forbidden patterns."
+
+    fm = contract.failure_mechanism
+    failure_mechanism_text = (
+        f"  * Runtime Trigger: {fm.trigger}\n"
+        f"  * Underlying Cause: {fm.underlying_cause}\n"
+        f"  * Observable Symptom: {fm.observable_symptom}\n"
+        f"  * Why It Is Non-Obvious: {fm.why_it_is_non_obvious}"
+    )
+
+    reasoning_text = "\n".join(f"  {idx+1}. {step}" for idx, step in enumerate(contract.interviewer_strategy.expected_reasoning))
+
+    return (
+        f"TASK: IMPLEMENT THE APPROVED CODING EXERCISE CONTRACT AS PRODUCTION SOURCE CODE.\n"
+        f"Do NOT invent a new scenario, incident, or failure mode. Your single objective is to write the complete multi-file source code implementing the exact contract specification below.\n\n"
+        f"==============================================================================\n"
+        f"APPROVED EXERCISE CONTRACT (Contract ID: {contract.contract_id})\n"
+        f"==============================================================================\n"
+        f"OBJECTIVE: {contract.objective}\n"
+        f"SCENARIO DOMAIN: {contract.scenario.domain}\n"
+        f"SCENARIO CONTEXT: {contract.scenario.context}\n"
+        f"OBSERVED INCIDENT: {contract.scenario.incident}\n\n"
+        f"MANDATORY ARCHITECTURE REQUIREMENTS (Must be instantiated across 2-3 files):\n"
+        f"{arch_reqs}\n\n"
+        f"MANDATORY FAILURE REQUIREMENTS (Must be faithfully implemented):\n"
+        f"{failure_reqs}\n\n"
+        f"FAILURE MECHANISM SPECIFICATION:\n"
+        f"{failure_mechanism_text}\n\n"
+        f"CANDIDATE TESTED ON:\n"
+        f"{tested_on}\n\n"
+        f"INTERVIEWER STRATEGY (Use for 'prompt_question', 'discussion_questions', and 'evaluation'):\n"
+        f"- Opening Question / Prompt Question: \"{contract.interviewer_strategy.opening_question}\"\n"
+        f"- Expected Reasoning Chain:\n{reasoning_text}\n"
+        f"- Follow-up Areas: {', '.join(contract.interviewer_strategy.follow_up_areas)}\n\n"
+        f"IMPLEMENTATION CONSTRAINTS:\n"
+        f"- File Count: {contract.implementation_constraints.files} files (strictly 2 to 3 files)\n"
+        f"- Language: {contract.implementation_constraints.language} (file extensions must be '{target_ext}')\n"
+        f"- FORBIDDEN PATTERNS ('avoid'):\n{avoid_list}\n"
+        f"- GLOBAL BANS: Absolutely NO Mock*, Fake*, Stub*, Dummy*, InMemory*, TODO comments, or pass-only placeholders.\n\n"
+        f"SENIORITY & COMPLEXITY TARGET:\n"
+        f"- Tier: {seniority_diff.value} ({seniority_reason})\n"
+        f"{seniority_guidance}\n\n"
+        f"TARGET ECOSYSTEM:\n"
+        f"Language={target_lang}, Framework={ecosystem.framework}, Libraries={', '.join(ecosystem.domain_libraries)}, Infra={', '.join(ecosystem.infrastructure_dependencies)}\n\n"
+        f"{retry_hint}\n\n"
+        f"Generate the full {schema_target} JSON containing the production source code files implementing this exact contract."
     )

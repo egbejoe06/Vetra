@@ -59,10 +59,23 @@ async function loadData() {
       console.warn('Could not load transcript turns:', e)
     }
 
-    // 4. Fetch evaluation scorecard
-    evaluation.value = await api.getSessionEvaluation(sessionId.value)
+    // 4. Fetch evaluation scorecard — poll with retries to handle the background
+    //    synthesis race condition (session just completed, DB write still in flight)
+    if (session.value?.status === 'COMPLETED') {
+      const MAX_POLLS = 5
+      const POLL_INTERVAL_MS = 2000
+      for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+        evaluation.value = await api.getSessionEvaluation(sessionId.value)
+        if (evaluation.value) break
+        if (attempt < MAX_POLLS - 1) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        }
+      }
+    } else {
+      evaluation.value = await api.getSessionEvaluation(sessionId.value)
+    }
 
-    // If evaluation does not exist yet but session is completed, trigger synthesis
+    // If still not found after polling, trigger an explicit synthesis
     if (!evaluation.value && session.value?.status === 'COMPLETED' && transcriptTurns.value.length > 0) {
       await handleSynthesizeReport(false)
     }
@@ -80,8 +93,9 @@ async function handleSynthesizeReport(showLoadingOverlay = true) {
       isSynthesizing.value = true
     }
     synthesisError.value = null
-    const result = await api.synthesizeReport(sessionId.value)
-    evaluation.value = result
+    await api.synthesizeReport(sessionId.value)
+    // Re-fetch from DB so recruiter dashboard sees the same persisted record
+    evaluation.value = await api.getSessionEvaluation(sessionId.value)
   } catch (err: any) {
     console.error('Failed to synthesize report:', err)
     synthesisError.value = err.message || 'Failed to synthesize candidate evaluation report.'

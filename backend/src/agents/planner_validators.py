@@ -2,16 +2,16 @@ import ast
 import logging
 import os
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from src.models.enums import CodeLanguage
-from src.schemas.planner import CodingExerciseAsset, InterviewPlan
+from src.schemas.planner import CodingExerciseAsset, CodingExerciseContract, InterviewPlan
 
 logger = logging.getLogger(__name__)
 
 
 class PlanValidationError(Exception):
-    """Raised when an InterviewPlan or CodingExerciseAsset fails strict validation checks."""
+    """Raised when an InterviewPlan, CodingExerciseContract, or CodingExerciseAsset fails strict validation checks."""
     pass
 
 
@@ -30,6 +30,13 @@ MANUFACTURED_BUG_PATTERNS = [
     re.compile(r'(#|//)\s*(artificial delay|simulate latency|simulate error|manufactured bug|planted defect)', re.IGNORECASE),
 ]
 
+BASE_FORBIDDEN_PATTERNS = [
+    (re.compile(r'\b(Mock|Fake|Stub|Dummy|InMemory)[A-Z0-9_]+', re.IGNORECASE), "Mock / Fake / Stub / InMemory implementation pattern"),
+    (re.compile(r'(#|//)\s*TODO\b', re.IGNORECASE), "TODO comment"),
+    (re.compile(r'def\s+[a-zA-Z0-9_]+\([^)]*\)(?:\s*->\s*[^:]+)?:\s*(?:"""[\s\S]*?"""\s*|\'\'\'[\s\S]*?\'\'\'\s*)?pass\s*(#.*)?$', re.MULTILINE), "Empty pass-only method placeholder"),
+    (re.compile(r'raise\s+NotImplementedError\b', re.IGNORECASE), "NotImplementedError placeholder"),
+]
+
 
 def sanitize_code_spoilers(content: str) -> str:
     """Removes spoiler comments that give away bugs, race conditions, or flaw hints to candidates."""
@@ -45,19 +52,68 @@ def sanitize_code_spoilers(content: str) -> str:
     return "\n".join(cleaned_lines)
 
 
-def validate_codebase(exercise: CodingExerciseAsset) -> Tuple[bool, List[str]]:
-    """Strictly validates that a generated coding exercise codebase adheres to Monaco contracts:
-    - 2 to 3 code files.
-    - Standard relative paths (e.g., 'src/main.py', 'retriever.py', NOT absolute 'C:\\...' or '/home/...').
-    - Unique paths.
-    - Non-empty content.
-    - Automatic stripping of spoiler comments (# BUG:, # Race condition, etc.).
-    - Prohibition of dummy placeholder comments (# this is what will happen here).
-    - NO Markdown code fences inside file content strings (e.g. ```python ... ```).
-    - Syntax validation for Python files.
+def validate_contract(contract: CodingExerciseContract) -> Tuple[bool, List[str]]:
+    """Strictly validates that a generated CodingExerciseContract adheres to design quality standards:
+    - failure_requirements has >= 3 items.
+    - architecture_requirements has >= 2 distinct components.
+    - candidate_should_be_tested_on has >= 2 specific evaluation areas.
+    - failure_mechanism has non-empty trigger, underlying_cause, observable_symptom, and why_it_is_non_obvious.
+    - interviewer_strategy has non-empty opening_question and expected_reasoning.
+    - implementation_constraints has language and files specified.
     """
     errors: List[str] = []
 
+    if not contract.scenario.domain or len(contract.scenario.domain.strip()) < 5:
+        errors.append("Contract scenario domain must describe a specific, realistic domain context (>= 5 chars).")
+
+    if not contract.scenario.incident or len(contract.scenario.incident.strip()) < 15:
+        errors.append("Contract scenario incident must describe a specific, observable incident (>= 15 chars).")
+
+    if len(contract.failure_requirements) < 3:
+        errors.append(f"Contract failure_requirements must contain at least 3 items, found {len(contract.failure_requirements)}.")
+
+    if len(contract.architecture_requirements) < 2:
+        errors.append(f"Contract architecture_requirements must specify at least 2 distinct components, found {len(contract.architecture_requirements)}.")
+
+    if len(contract.candidate_should_be_tested_on) < 2:
+        errors.append(f"Contract candidate_should_be_tested_on must specify at least 2 concrete competencies, found {len(contract.candidate_should_be_tested_on)}.")
+
+    fm = contract.failure_mechanism
+    if not fm.trigger or len(fm.trigger.strip()) < 10:
+        errors.append("Contract failure_mechanism.trigger must describe the runtime trigger condition (>= 10 chars).")
+    if not fm.underlying_cause or len(fm.underlying_cause.strip()) < 10:
+        errors.append("Contract failure_mechanism.underlying_cause must describe the flawed invariant or synchronization error (>= 10 chars).")
+    if not fm.observable_symptom or len(fm.observable_symptom.strip()) < 10:
+        errors.append("Contract failure_mechanism.observable_symptom must describe the observable telemetry or defect (>= 10 chars).")
+    if not fm.why_it_is_non_obvious or len(fm.why_it_is_non_obvious.strip()) < 10:
+        errors.append("Contract failure_mechanism.why_it_is_non_obvious must explain why the bug cannot be spotted superficially (>= 10 chars).")
+
+    if not contract.interviewer_strategy.opening_question or len(contract.interviewer_strategy.opening_question.strip()) < 10:
+        errors.append("Contract interviewer_strategy.opening_question must be a substantial diagnostic question (>= 10 chars).")
+
+    if not contract.interviewer_strategy.expected_reasoning:
+        errors.append("Contract interviewer_strategy.expected_reasoning must contain at least 1 expected diagnostic step.")
+
+    if not contract.implementation_constraints.language:
+        errors.append("Contract implementation_constraints must specify a target programming language.")
+
+    return len(errors) == 0, errors
+
+
+def validate_codebase(
+    exercise: CodingExerciseAsset,
+    contract: Optional[CodingExerciseContract] = None,
+) -> Tuple[bool, List[str]]:
+    """Multi-level validation of generated coding exercise codebase:
+    - Level 1: Basic validity (file count 2-3, unique relative paths, non-empty, no markdown fences, AST syntax, <= 300 LOC).
+    - Level 2: Anti-toy validation (BASE_FORBIDDEN_PATTERNS such as Mock*, Fake*, Stub*, InMemory*, TODO, pass placeholders).
+    - Level 3: Contract fidelity (if contract provided, check implementation_constraints.avoid and language/architecture alignment).
+    """
+    errors: List[str] = []
+
+    # =========================================================================
+    # LEVEL 1 — BASIC VALIDITY
+    # =========================================================================
     if not exercise.code_files:
         errors.append("Coding exercise must contain at least 2 code files, found 0.")
         return False, errors
@@ -111,6 +167,34 @@ def validate_codebase(exercise: CodingExerciseAsset) -> Tuple[bool, List[str]]:
                 )
                 break
 
+        # =====================================================================
+        # LEVEL 2 — ANTI-TOY VALIDATION (BASE_FORBIDDEN_PATTERNS)
+        # =====================================================================
+        for forbidden_pat, pattern_desc in BASE_FORBIDDEN_PATTERNS:
+            match = forbidden_pat.search(content)
+            if match:
+                errors.append(
+                    f"File '{norm_path}' violates Level 2 anti-toy contract: detected {pattern_desc} ('{match.group(0).strip()}'). "
+                    "Production code must use realistic component implementations and domain boundaries, not mocks, fakes, or stubs."
+                )
+                break
+
+        # =====================================================================
+        # LEVEL 3 — CONTRACT SPECIFIC AVOID PATTERNS
+        # =====================================================================
+        if contract and contract.implementation_constraints and contract.implementation_constraints.avoid:
+            for avoid_term in contract.implementation_constraints.avoid:
+                clean_term = avoid_term.strip()
+                if clean_term and len(clean_term) >= 3:
+                    # Check whole word match or regex term
+                    escaped_term = re.escape(clean_term)
+                    if re.search(rf'\b{escaped_term}\b', content, re.IGNORECASE):
+                        errors.append(
+                            f"File '{norm_path}' violates contract implementation constraints: "
+                            f"contains forbidden pattern '{clean_term}' explicitly banned by exercise contract."
+                        )
+                        break
+
         # 4. Markdown fence check
         if "```" in content:
             errors.append(
@@ -137,6 +221,15 @@ def validate_codebase(exercise: CodingExerciseAsset) -> Tuple[bool, List[str]]:
             f"Codebase total lines of code ({total_loc} LOC) exceeds the hard ceiling of 300 LOC. "
             "Please refine the codebase to the minimal code necessary to create the intended reasoning problem."
         )
+
+    # Level 3 Language alignment check
+    if contract and contract.implementation_constraints and contract.implementation_constraints.language:
+        target_lang = contract.implementation_constraints.language.strip().lower()
+        actual_lang = exercise.language.value.lower() if hasattr(exercise.language, "value") else str(exercise.language).lower()
+        if target_lang != actual_lang:
+            errors.append(
+                f"Codebase language '{actual_lang}' does not match contract language requirement '{target_lang}'."
+            )
 
     return len(errors) == 0, errors
 
@@ -187,7 +280,7 @@ def validate_interview_plan(
         errors.append("Interview plan must contain at least one exercise (coding_exercise or system_design_exercise).")
 
     if plan.coding_exercise:
-        code_valid, code_errors = validate_codebase(plan.coding_exercise)
+        code_valid, code_errors = validate_codebase(plan.coding_exercise, contract=plan.coding_exercise.contract)
         if not code_valid:
             errors.extend(code_errors)
 

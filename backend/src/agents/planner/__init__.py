@@ -17,6 +17,7 @@ from src.agents.planner.exceptions import (
 from src.agents.planner.generators import (
     BlueprintGenerator,
     CodingExerciseGenerator,
+    ExerciseContractGenerator,
     QuestionGenerator,
     RubricGenerator,
     SystemDesignGenerator,
@@ -37,6 +38,7 @@ __all__ = [
     "detect_technology_ecosystem",
     "PlannerLLMClient",
     "BlueprintGenerator",
+    "ExerciseContractGenerator",
     "QuestionGenerator",
     "CodingExerciseGenerator",
     "SystemDesignGenerator",

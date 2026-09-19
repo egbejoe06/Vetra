@@ -151,6 +151,54 @@ class TechnologyEnvironment(BaseModel):
     infrastructure_dependencies: List[str] = Field(default_factory=list, description="Backing services context (e.g. Redis, PostgreSQL, Vector DB)")
 
 
+
+class ExerciseScenario(BaseModel):
+    domain: str = Field(description="Believable micro-service or domain context grounded in candidate's experience")
+    context: str = Field(description="Operational context, scale, and background architecture")
+    incident: str = Field(description="Observed operational incident or user-impacting symptom")
+
+
+class ExerciseFailureMechanism(BaseModel):
+    trigger: str = Field(description="Runtime event or concurrent condition that activates the defect")
+    underlying_cause: str = Field(description="Flawed invariant, state synchronization error, or incorrect assumption")
+    observable_symptom: str = Field(description="Telemetry, data corruption, or degradation observed by candidate")
+    why_it_is_non_obvious: str = Field(description="Why the issue cannot be diagnosed from a single line or superficial inspection")
+
+
+class ExerciseInterviewerStrategy(BaseModel):
+    opening_question: str = Field(description="Initial open-ended conversational prompt for candidate")
+    expected_reasoning: List[str] = Field(default_factory=list, description="Diagnostic steps candidate should articulate out loud")
+    follow_up_areas: List[str] = Field(default_factory=list, description="Targeted areas to probe deeper into trade-offs and edge cases")
+
+
+class ExerciseImplementationConstraints(BaseModel):
+    files: str = Field(default="2-3", description="File count constraint")
+    language: str = Field(description="Target programming language")
+    avoid: List[str] = Field(default_factory=list, description="Contract-specific forbidden patterns or domain anti-patterns")
+
+
+class CodingExerciseContract(BaseModel):
+    contract_id: str = Field(default_factory=lambda: f"cnt_{uuid4().hex[:10]}")
+    required: bool = True
+    objective: str
+    scenario: ExerciseScenario
+    candidate_should_be_tested_on: List[str] = Field(default_factory=list)
+    architecture_requirements: List[str] = Field(default_factory=list)
+    failure_requirements: List[str] = Field(default_factory=list)
+    failure_mechanism: ExerciseFailureMechanism
+    interviewer_strategy: ExerciseInterviewerStrategy
+    implementation_constraints: ExerciseImplementationConstraints
+
+    @model_validator(mode="before")
+    @classmethod
+    def unwrap_root_envelope(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ("exercise_contract", "contract", "CodingExerciseContract", "data"):
+                if key in data and isinstance(data[key], dict):
+                    return data[key]
+        return data
+
+
 class CodingExerciseAsset(BaseModel):
     problem_type: TechnicalProblemType = TechnicalProblemType.CODE_REVIEW
     title: str
@@ -164,6 +212,7 @@ class CodingExerciseAsset(BaseModel):
     code_files: List[CodeFile] = Field(default_factory=list)
     discussion_questions: List[str] = Field(default_factory=list)
     evaluation: CodingExerciseEvaluation = Field(default_factory=CodingExerciseEvaluation)
+    contract: Optional[CodingExerciseContract] = None
 
     @model_validator(mode="before")
     @classmethod

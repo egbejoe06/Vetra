@@ -321,6 +321,9 @@ class ReportSynthesizerService:
             "score_breakdown": scorecard.score_breakdown.model_dump(),
             "audit_trail": [a.model_dump() for a in scorecard.audit_trail],
             "snapshot_id": str(snapshot.id),
+            "completion_status": scorecard.completion_status,
+            "stages_completed": scorecard.stages_completed,
+            "stages_not_reached": scorecard.stages_not_reached,
             "completed_at": now.isoformat(),
         }
 

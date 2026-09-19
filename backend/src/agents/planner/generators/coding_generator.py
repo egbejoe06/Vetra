@@ -12,11 +12,13 @@ from src.agents.planner.ecosystem import detect_technology_ecosystem
 from src.agents.planner.prompts.coding_prompts import (
     build_coding_exercise_system_instruction,
     build_coding_exercise_user_prompt,
+    build_coding_exercise_user_prompt_from_contract,
 )
 from src.agents.planner_validators import validate_codebase
 from src.schemas.planner import (
     CandidateProfile,
     CodingExerciseAsset,
+    CodingExerciseContract,
     InterviewBlueprint,
     InterviewPlanCreate,
 )
@@ -39,8 +41,9 @@ class CodingExerciseGenerator:
         blueprint: InterviewBlueprint,
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
         previous_exercises: Optional[List[str]] = None,
+        contract: Optional[CodingExerciseContract] = None,
     ) -> Optional[CodingExerciseAsset]:
-        """Generates a coding exercise using Gemini Flash (Primary) with AST validation.
+        """Generates a coding exercise using Gemini Flash (Primary) with AST and contract validation.
         Optionally falls back to Kimi AI if enabled.
         """
         if diagnostic_list is None:
@@ -48,7 +51,10 @@ class CodingExerciseGenerator:
 
         exercise: Optional[CodingExerciseAsset] = None
         gemini_retries = 2
-        logger.info("Generating coding exercise using Gemini Flash (Primary)...")
+        logger.info(
+            "Generating coding exercise using Gemini Flash (Primary)%s...",
+            f" for contract '{contract.contract_id}'" if contract else "",
+        )
 
         last_gemini_errors: List[str] = []
         for g_attempt in range(1, gemini_retries + 1):
@@ -59,16 +65,19 @@ class CodingExerciseGenerator:
                     else (f"Attempt #{g_attempt}" if g_attempt > 1 else "")
                 )
                 ex = self.generate_gemini(
-                    profile,
-                    job_spec,
-                    blueprint,
+                    profile=profile,
+                    job_spec=job_spec,
+                    blueprint=blueprint,
                     retry_hint=hint,
                     diagnostic_list=diagnostic_list,
                     previous_exercises=previous_exercises,
+                    contract=contract,
                 )
                 if ex:
-                    is_valid, errors = validate_codebase(ex)
+                    is_valid, errors = validate_codebase(ex, contract=contract)
                     if is_valid:
+                        if contract:
+                            ex.contract = contract
                         exercise = ex
                         break
                     last_gemini_errors = errors
@@ -76,7 +85,7 @@ class CodingExerciseGenerator:
                         "provider": "ast_validator",
                         "operation": "validate_codebase",
                         "error_type": "SyntaxWarning",
-                        "message": f"Gemini attempt {g_attempt} AST warnings: {'; '.join(errors)}",
+                        "message": f"Gemini attempt {g_attempt} validation warnings: {'; '.join(errors)}",
                     })
                     logger.warning(f"Gemini coding exercise validation warnings on attempt {g_attempt}: {errors}")
             except Exception as fb_err:
@@ -108,11 +117,18 @@ class CodingExerciseGenerator:
                             else f"Attempt #{attempt}"
                         )
                         ex = self.generate_kimi(
-                            profile, job_spec, blueprint, retry_hint=hint, diagnostic_list=diagnostic_list
+                            profile=profile,
+                            job_spec=job_spec,
+                            blueprint=blueprint,
+                            retry_hint=hint,
+                            diagnostic_list=diagnostic_list,
+                            contract=contract,
                         )
                         if ex:
-                            is_valid, errors = validate_codebase(ex)
+                            is_valid, errors = validate_codebase(ex, contract=contract)
                             if is_valid:
+                                if contract:
+                                    ex.contract = contract
                                 exercise = ex
                                 break
                             last_kimi_errors = errors
@@ -151,20 +167,37 @@ class CodingExerciseGenerator:
         retry_hint: str = "",
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
         previous_exercises: Optional[List[str]] = None,
+        contract: Optional[CodingExerciseContract] = None,
     ) -> CodingExerciseAsset:
         target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
+        if contract and contract.implementation_constraints and contract.implementation_constraints.language:
+            target_lang = contract.implementation_constraints.language
+
         system_instruction = build_coding_exercise_system_instruction(target_lang, target_ext, ecosystem, include_json_schema=False)
-        user_prompt = build_coding_exercise_user_prompt(
-            profile,
-            job_spec,
-            blueprint,
-            target_lang,
-            target_ext,
-            ecosystem,
-            retry_hint=retry_hint,
-            schema_target="CodingExerciseAsset",
-            previous_exercises=previous_exercises,
-        )
+        if contract:
+            user_prompt = build_coding_exercise_user_prompt_from_contract(
+                contract=contract,
+                profile=profile,
+                job_spec=job_spec,
+                blueprint=blueprint,
+                target_lang=target_lang,
+                target_ext=target_ext,
+                ecosystem=ecosystem,
+                retry_hint=retry_hint,
+                schema_target="CodingExerciseAsset",
+            )
+        else:
+            user_prompt = build_coding_exercise_user_prompt(
+                profile,
+                job_spec,
+                blueprint,
+                target_lang,
+                target_ext,
+                ecosystem,
+                retry_hint=retry_hint,
+                schema_target="CodingExerciseAsset",
+                previous_exercises=previous_exercises,
+            )
 
         gen_temp = 0.7 if previous_exercises else 0.4
 
@@ -187,10 +220,14 @@ class CodingExerciseGenerator:
             resp = self.client.call_gemini_with_retry(_call, operation_name="Generate Coding Exercise (Gemini Flash)")
             if resp.parsed and isinstance(resp.parsed, CodingExerciseAsset):
                 resp.parsed.technology_environment = ecosystem
+                if contract:
+                    resp.parsed.contract = contract
                 return resp.parsed
             if resp.text:
                 ex = CodingExerciseAsset(**json.loads(resp.text))
                 ex.technology_environment = ecosystem
+                if contract:
+                    ex.contract = contract
                 return ex
             raise RuntimeError("Gemini Flash returned empty coding exercise.")
         except Exception as e:
@@ -210,6 +247,7 @@ class CodingExerciseGenerator:
         blueprint: InterviewBlueprint,
         retry_hint: str = "",
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
+        contract: Optional[CodingExerciseContract] = None,
     ) -> Optional[CodingExerciseAsset]:
         if not self.client.moonshot_api_key or self.client.moonshot_api_key == "EMPTY_MOONSHOT_KEY" or not self.client.kimi_client:
             logger.warning("Moonshot API Key is missing or client not initialized.")
@@ -223,10 +261,26 @@ class CodingExerciseGenerator:
             return None
 
         target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
+        if contract and contract.implementation_constraints and contract.implementation_constraints.language:
+            target_lang = contract.implementation_constraints.language
+
         system_instruction = build_coding_exercise_system_instruction(target_lang, target_ext, ecosystem, include_json_schema=True)
-        user_prompt = build_coding_exercise_user_prompt(
-            profile, job_spec, blueprint, target_lang, target_ext, ecosystem, retry_hint=retry_hint, schema_target="JSON schema"
-        )
+        if contract:
+            user_prompt = build_coding_exercise_user_prompt_from_contract(
+                contract=contract,
+                profile=profile,
+                job_spec=job_spec,
+                blueprint=blueprint,
+                target_lang=target_lang,
+                target_ext=target_ext,
+                ecosystem=ecosystem,
+                retry_hint=retry_hint,
+                schema_target="JSON schema",
+            )
+        else:
+            user_prompt = build_coding_exercise_user_prompt(
+                profile, job_spec, blueprint, target_lang, target_ext, ecosystem, retry_hint=retry_hint, schema_target="JSON schema"
+            )
 
         try:
             logger.info(f"Calling Kimi AI ({self.client.kimi_model}) for multi-file coding exercise generation...")
@@ -256,6 +310,8 @@ class CodingExerciseGenerator:
             try:
                 ex = CodingExerciseAsset(**data)
                 ex.technology_environment = ecosystem
+                if contract:
+                    ex.contract = contract
                 return ex
             except ValidationError as val_err:
                 logger.error(

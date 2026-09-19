@@ -191,6 +191,7 @@ class PlannerService:
                     "questions": [q.model_dump() for q in plan.questions],
                     "behavioral_questions": [q.model_dump() for q in plan.behavioral_questions],
                     "evaluation": plan.coding_exercise.evaluation.model_dump() if plan.coding_exercise and plan.coding_exercise.evaluation else {},
+                    "exercise_contract": plan.coding_exercise.contract.model_dump() if plan.coding_exercise and plan.coding_exercise.contract else None,
                     "system_design_exercise": plan.system_design_exercise.model_dump() if plan.system_design_exercise else None,
                     "rubrics": [r.model_dump() for r in plan.rubrics],
                     "guidance": plan.interviewer_guidance.model_dump() if hasattr(plan.interviewer_guidance, "model_dump") else plan.interviewer_guidance,
@@ -402,6 +403,7 @@ class PlannerService:
                     c = art.get("content") or {}
                     if c.get("interview_id") == str(interview_id):
                         c["evaluation"] = coding_exercise.evaluation.model_dump() if coding_exercise.evaluation else {}
+                        c["exercise_contract"] = coding_exercise.contract.model_dump() if coding_exercise and coding_exercise.contract else None
                         c["system_design_exercise"] = system_design_exercise.model_dump() if system_design_exercise else None
                         c["exercises_deferred"] = False
                         self.supabase.table("interview_artifacts").update({

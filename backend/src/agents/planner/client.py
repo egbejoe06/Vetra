@@ -39,6 +39,7 @@ class PlannerLLMClient:
         self.kimi_timeout_seconds = getattr(settings, "KIMI_TIMEOUT_SECONDS", 75.0)
         self.kimi_max_retries = getattr(settings, "KIMI_MAX_RETRIES", 2)
         self.thinking_budget = getattr(settings, "GEMINI_THINKING_BUDGET", 0)
+        self.contract_thinking_budget = getattr(settings, "GEMINI_CONTRACT_THINKING_BUDGET", 4000)
 
         # Thread synchronization lock for rate limit pacing across concurrent requests
         self._lock = threading.Lock()
