@@ -1,3 +1,4 @@
+import re
 from typing import Any, List, Optional, Tuple
 
 from src.models.enums import TechnicalProblemType
@@ -43,6 +44,24 @@ def detect_target_programming_language(
     
     Returns (language_name, file_extension), e.g. ("typescript", ".ts"), ("go", ".go"), ("python", ".py").
     """
+    tech_focus_text = " ".join(job_spec.technical_focus or []).lower()
+    job_title_text = (job_spec.job_title or "").lower()
+    focus_corpus = f"{job_title_text} {tech_focus_text}"
+
+    # Priority 0: Explicit recruiter / job focus overrides
+    if re.search(r'\b(python|py)\b', focus_corpus):
+        return "python", ".py"
+    if re.search(r'\b(typescript|ts|javascript|js|node|react|vue|angular)\b', focus_corpus):
+        return "typescript", ".ts"
+    if re.search(r'\b(golang|go)\b', focus_corpus):
+        return "go", ".go"
+    if re.search(r'\b(java|spring|kotlin)\b', focus_corpus):
+        return "java", ".java"
+    if re.search(r'\b(rust)\b', focus_corpus):
+        return "rust", ".rs"
+    if re.search(r'\b(c\+\+|cpp)\b', focus_corpus):
+        return "cpp", ".cpp"
+
     text_corpus = " ".join([
         job_spec.job_title or "",
         job_spec.description or "",
@@ -51,26 +70,28 @@ def detect_target_programming_language(
         " ".join(profile.frameworks_and_tools or []),
     ]).lower()
 
-    # Priority 1: TypeScript / JavaScript
-    if any(k in text_corpus for k in ("typescript", "ts", "react", "vue", "angular", "next.js", "frontend", "front-end")):
-        return "typescript", ".ts"
-    if any(k in text_corpus for k in ("javascript", "node", "express", "fullstack", "full-stack")):
+    # Priority 1: TypeScript / JavaScript (using whole word boundaries to prevent 'ts' matching inside 'websockets'/'endpoints')
+    if (
+        re.search(r'\b(typescript|ts)\b', text_corpus)
+        or any(k in text_corpus for k in ("react", "vue", "angular", "next.js", "frontend", "front-end"))
+        or any(k in text_corpus for k in ("javascript", "node", "express", "fullstack", "full-stack"))
+    ):
         return "typescript", ".ts"
 
     # Priority 2: Go / Golang
-    if any(k in text_corpus for k in ("golang", "go ", "go/", "go,", "goroutine")):
+    if re.search(r'\b(golang|go|goroutine)\b', text_corpus):
         return "go", ".go"
 
     # Priority 3: Java
-    if any(k in text_corpus for k in ("java ", "java/", "java,", "spring", "springboot", "spring boot", "jvm", "kotlin")):
+    if re.search(r'\b(java|spring|springboot|jvm|kotlin)\b', text_corpus):
         return "java", ".java"
 
     # Priority 4: Rust
-    if any(k in text_corpus for k in ("rust", "cargo", "tokio")):
+    if re.search(r'\b(rust|cargo|tokio)\b', text_corpus):
         return "rust", ".rs"
 
     # Priority 5: C++
-    if any(k in text_corpus for k in ("c++", "cpp")):
+    if re.search(r'\b(c\+\+|cpp)\b', text_corpus):
         return "cpp", ".cpp"
 
     # Priority 6: Python (Machine learning, Data, Python backend, or default)
@@ -148,6 +169,8 @@ def detect_technology_ecosystem(
         domain_libraries.append("OpenAI SDK")
     if any(k in text_corpus for k in ("pydantic", "validation")) or (lang == "python" and framework == "FastAPI"):
         domain_libraries.append("Pydantic")
+    if any(k in text_corpus for k in ("websocket", "websockets", "ws", "socket")):
+        domain_libraries.append("WebSockets")
     if any(k in text_corpus for k in ("sqlalchemy", "orm")) and lang == "python":
         domain_libraries.append("SQLAlchemy")
     if any(k in text_corpus for k in ("prisma", "typeorm")) and lang == "typescript":
@@ -166,6 +189,8 @@ def detect_technology_ecosystem(
         infra_deps.append("Kafka")
     if "celery" in text_corpus:
         infra_deps.append("Celery")
+    if any(k in text_corpus for k in ("websocket", "websockets", "stream", "audio", "duplex")) and "WebSockets" not in domain_libraries:
+        infra_deps.append("WebSocket Duplex Stream")
 
     # Enforce strict anti-soup limits: maximum 3 domain libraries, 2 infra dependencies
     domain_libraries = domain_libraries[:3]
@@ -173,8 +198,10 @@ def detect_technology_ecosystem(
 
     ecosystem = TechnologyEnvironment(
         primary_language=lang,
+        file_extension=ext,
         framework=framework,
         domain_libraries=domain_libraries,
         infrastructure_dependencies=infra_deps,
+        selection_rationale="Baseline technology environment detected from candidate profile and job requirements",
     )
     return lang, ext, ecosystem

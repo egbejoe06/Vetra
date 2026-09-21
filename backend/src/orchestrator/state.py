@@ -58,6 +58,13 @@ class InterviewerContext(BaseModel):
     maximum_questions: int = 3
     transition_eligible: bool
     transition_allowed: bool = False
+    speech_state: str = "NORMAL"
+    recovery_required: bool = False
+    recovery_reason: Optional[str] = None
+    recovery_attempts: int = 0
+    max_recovery_attempts: int = 2
+    pending_question_id: Optional[str] = None
+    pending_question_text: Optional[str] = None
     active_problem_id: Optional[str] = None
     problem_presented: bool = False
     problem_discussed: bool = False
@@ -80,10 +87,24 @@ class InterviewState(TypedDict):
     current_stage: str
     incoming_event: Optional[Dict[str, Any]]
 
-    # Stage tracking
+    # Four-metric and recovery state
+    speech_state: str
+    recovery_required: bool
+    recovery_reason: Optional[str]
+    max_recovery_attempts: int
+    pending_question_id: Optional[str]
+    pending_question_text: Optional[str]
+    active_questions: Dict[str, Dict[str, Any]]
+
+    # Metric tracking
+    stage_question_slots: Dict[str, int]
+    delivered_question_counts: Dict[str, int]
+    answered_question_counts: Dict[str, int]
     stage_question_counts: Dict[str, int]
     stage_substantive_turn_counts: Dict[str, int]
     total_questions_asked: int
+    delivered_question_ids: Annotated[List[str], operator.add]
+    answered_question_ids: Annotated[List[str], operator.add]
 
     # Technical exercise
     active_problem_id: Optional[str]

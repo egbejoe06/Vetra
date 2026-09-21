@@ -111,11 +111,16 @@ onMounted(() => {
 })
 
 function addTechFocus() {
-  if (techFocusInput.value.trim() && !form.technical_focus?.includes(techFocusInput.value.trim())) {
-    form.technical_focus = form.technical_focus || []
-    form.technical_focus.push(techFocusInput.value.trim())
-    techFocusInput.value = ''
+  const raw = techFocusInput.value.trim()
+  if (!raw) return
+  form.technical_focus = form.technical_focus || []
+  const items = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+  for (const item of items) {
+    if (!form.technical_focus.includes(item)) {
+      form.technical_focus.push(item)
+    }
   }
+  techFocusInput.value = ''
 }
 
 function removeTechFocus(idx: number) {
@@ -123,11 +128,18 @@ function removeTechFocus(idx: number) {
 }
 
 function addBehavioralFocus() {
-  if (behavioralFocusInput.value.trim() && !form.behavioral_focus?.includes(behavioralFocusInput.value.trim())) {
-    form.behavioral_focus = form.behavioral_focus || []
-    form.behavioral_focus.push(behavioralFocusInput.value.trim())
-    behavioralFocusInput.value = ''
+  const raw = behavioralFocusInput.value.trim()
+  if (!raw) return
+  form.behavioral_focus = form.behavioral_focus || []
+  const items = (raw.includes(',') || raw.includes(';'))
+    ? raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean)
+    : [raw]
+  for (const item of items) {
+    if (!form.behavioral_focus.includes(item)) {
+      form.behavioral_focus.push(item)
+    }
   }
+  behavioralFocusInput.value = ''
 }
 
 function removeBehavioralFocus(idx: number) {

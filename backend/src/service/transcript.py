@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import uuid
 
 from src.db.supabase import supabase
-from src.models.enums import InterviewStage, TranscriptSpeaker
+from src.models.enums import InterviewStage, TranscriptSpeaker, TurnCompletionStatus
 from src.orchestrator.engine import interview_orchestrator
 from src.schemas.interview import TranscriptTurnCreate, TranscriptTurnResponse
 from src.service.evaluation_queue import evaluation_queue
@@ -61,6 +61,7 @@ class TranscriptService:
         speaker: TranscriptSpeaker,
         stage: Optional[InterviewStage] = None,
         content: Optional[str] = None,
+        completion_status: TurnCompletionStatus = TurnCompletionStatus.COMPLETE,
     ) -> Optional[TranscriptTurnResponse]:
         """Finalize and persist a complete dialogue turn into Supabase."""
         sess_key = str(session_id)
@@ -155,16 +156,22 @@ class TranscriptService:
         except Exception as q_err:
             logger.warning(f"Failed to check evaluation queue on turn {next_turn_index}: {q_err}")
 
-        # Notify orchestrator of turns (both interviewer questions and candidate answers)
+        # Dispatch to orchestrator for semantic evaluation, intent classification, and recovery
         try:
-            await interview_orchestrator.record_question_asked(
+            status_val = (
+                completion_status.value
+                if hasattr(completion_status, "value")
+                else str(completion_status)
+            )
+            await interview_orchestrator.process_transcript_turn(
                 session_id=session_id,
-                question_text=text_to_save,
+                speaker=speaker.value,
+                content=text_to_save,
                 stage=current_stage.value,
-                actor="CANDIDATE" if speaker == TranscriptSpeaker.CANDIDATE else "GEMINI",
+                completion_status=status_val,
             )
         except Exception as err:
-            logger.warning(f"Failed to record turn in orchestrator: {err}")
+            logger.warning(f"Failed to process turn in orchestrator: {err}")
 
         return TranscriptTurnResponse(
             id=turn_id,

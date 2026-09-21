@@ -304,6 +304,14 @@ def build_coding_exercise_user_prompt_from_contract(
 
     reasoning_text = "\n".join(f"  {idx+1}. {step}" for idx, step in enumerate(contract.interviewer_strategy.expected_reasoning))
 
+    target_env = getattr(contract, "technology_environment", None) or ecosystem
+    actual_lang = target_env.primary_language if target_env and target_env.primary_language else target_lang
+    actual_ext = target_env.file_extension if target_env and target_env.file_extension else target_ext
+    actual_framework = target_env.framework if target_env and target_env.framework else (ecosystem.framework or "Idiomatic modern framework")
+    actual_libs = target_env.domain_libraries if target_env and target_env.domain_libraries else ecosystem.domain_libraries
+    actual_infra = target_env.infrastructure_dependencies if target_env and target_env.infrastructure_dependencies else ecosystem.infrastructure_dependencies
+    rationale_line = f"- Environment Selection Rationale: {target_env.selection_rationale}\n" if target_env and target_env.selection_rationale else ""
+
     return (
         f"TASK: IMPLEMENT THE APPROVED CODING EXERCISE CONTRACT AS PRODUCTION SOURCE CODE.\n"
         f"Do NOT invent a new scenario, incident, or failure mode. Your single objective is to write the complete multi-file source code implementing the exact contract specification below.\n\n"
@@ -328,14 +336,18 @@ def build_coding_exercise_user_prompt_from_contract(
         f"- Follow-up Areas: {', '.join(contract.interviewer_strategy.follow_up_areas)}\n\n"
         f"IMPLEMENTATION CONSTRAINTS:\n"
         f"- File Count: {contract.implementation_constraints.files} files (strictly 2 to 3 files)\n"
-        f"- Language: {contract.implementation_constraints.language} (file extensions must be '{target_ext}')\n"
+        f"- Language: {contract.implementation_constraints.language or actual_lang} (file extensions must be '{actual_ext}')\n"
         f"- FORBIDDEN PATTERNS ('avoid'):\n{avoid_list}\n"
         f"- GLOBAL BANS: Absolutely NO Mock*, Fake*, Stub*, Dummy*, InMemory*, TODO comments, or pass-only placeholders.\n\n"
         f"SENIORITY & COMPLEXITY TARGET:\n"
         f"- Tier: {seniority_diff.value} ({seniority_reason})\n"
         f"{seniority_guidance}\n\n"
-        f"TARGET ECOSYSTEM:\n"
-        f"Language={target_lang}, Framework={ecosystem.framework}, Libraries={', '.join(ecosystem.domain_libraries)}, Infra={', '.join(ecosystem.infrastructure_dependencies)}\n\n"
+        f"PLANNER-DESIGNED TECHNOLOGY ECOSYSTEM (Mandatory Implementation Target):\n"
+        f"- Primary Language: {actual_lang} (Files must use extension '{actual_ext}')\n"
+        f"- Runtime Framework: {actual_framework}\n"
+        f"- Domain Libraries: {', '.join(actual_libs) if actual_libs else 'Standard idiomatic packages'}\n"
+        f"- Infrastructure & Transport: {', '.join(actual_infra) if actual_infra else 'Standard persistence / in-memory'}\n"
+        f"{rationale_line}\n"
         f"{retry_hint}\n\n"
         f"Generate the full {schema_target} JSON containing the production source code files implementing this exact contract."
     )

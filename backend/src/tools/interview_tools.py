@@ -12,10 +12,33 @@ async def handle_get_interviewer_state(session_id: str) -> Dict[str, Any]:
         ctx = await interview_orchestrator.get_interviewer_state(session_id)
         limit_reached = (ctx.maximum_questions > 0 and ctx.questions_asked_in_stage >= ctx.maximum_questions)
         min_reached = ctx.questions_asked_in_stage >= ctx.minimum_questions
-        transition_allowed = ctx.transition_allowed or limit_reached
-        should_transition = limit_reached or (min_reached and transition_allowed)
+        transition_allowed = ctx.transition_allowed and not ctx.recovery_required and ctx.pending_question_id is None
+        should_transition = transition_allowed and (limit_reached or min_reached)
 
-        if limit_reached:
+        if ctx.recovery_required:
+            transition_allowed = False
+            should_transition = False
+            if ctx.recovery_reason == "QUESTION_CLARIFICATION":
+                directive = (
+                    f"CLARIFICATION REQUIRED: The candidate asked for clarification on the pending question: "
+                    f"'{ctx.pending_question_text}'. Briefly explain or clarify the question in 1 concise sentence. "
+                    f"Do NOT ask a brand-new question, do NOT count this as an answer, and do NOT advance the stage."
+                )
+            else:
+                directive = (
+                    f"RECOVERY REQUIRED (Attempt {ctx.recovery_attempts}/{ctx.max_recovery_attempts}): "
+                    f"The previous question was cut off or the candidate could not hear ('{ctx.recovery_reason or 'audio interruption'}'). "
+                    f"Repeat the exact pending question: '{ctx.pending_question_text}'. "
+                    f"Do NOT generate a new question and do NOT advance the stage."
+                )
+        elif ctx.pending_question_id:
+            transition_allowed = False
+            should_transition = False
+            directive = (
+                f"AWAITING ANSWER: Currently waiting for candidate's response to pending question: "
+                f"'{ctx.pending_question_text}'. Listen attentively without interrupting; do NOT advance stages."
+            )
+        elif limit_reached:
             directive = (
                 f"STAGE MAXIMUM QUESTIONS REACHED: You have asked {ctx.questions_asked_in_stage}/{ctx.maximum_questions} "
                 f"questions in stage '{ctx.stage}'. You MUST transition to the next stage immediately by calling "
@@ -36,7 +59,7 @@ async def handle_get_interviewer_state(session_id: str) -> Dict[str, Any]:
 
         instructions = (
             ["STAGE LIMIT REACHED: Silently invoke request_stage_transition now. Do NOT ask more questions."]
-            if limit_reached
+            if limit_reached and not ctx.recovery_required and not ctx.pending_question_id
             else ctx.instructions
         )
         recommended_probe = None if limit_reached else ctx.recommended_probe
@@ -49,6 +72,14 @@ async def handle_get_interviewer_state(session_id: str) -> Dict[str, Any]:
             "maximum_questions_allowed": ctx.maximum_questions,
             "transition_eligible": should_transition,
             "should_transition_now": should_transition,
+            "transition_allowed": transition_allowed,
+            "speech_state": ctx.speech_state,
+            "recovery_required": ctx.recovery_required,
+            "recovery_reason": ctx.recovery_reason,
+            "recovery_attempts": ctx.recovery_attempts,
+            "max_recovery_attempts": ctx.max_recovery_attempts,
+            "pending_question_id": ctx.pending_question_id,
+            "pending_question_text": ctx.pending_question_text,
             "directive": directive,
             "active_problem_id": ctx.active_problem_id,
             "problem_presented": ctx.problem_presented,
@@ -61,7 +92,6 @@ async def handle_get_interviewer_state(session_id: str) -> Dict[str, Any]:
             "competency_coverage": ctx.competency_coverage,
             "competencies_covered": ctx.competencies_covered,
             "competencies_missing": ctx.competencies_missing,
-            "transition_allowed": transition_allowed,
             "recommended_probe": recommended_probe,
             "instructions": instructions,
             "pending_objectives": ctx.pending_objectives,

@@ -64,9 +64,21 @@ class InterviewOrchestrator:
             "candidate_name": candidate_name,
             "current_stage": initial_stage,
             "incoming_event": None,
+            "speech_state": "NORMAL",
+            "recovery_required": False,
+            "recovery_reason": None,
+            "max_recovery_attempts": 2,
+            "pending_question_id": None,
+            "pending_question_text": None,
+            "active_questions": {},
+            "stage_question_slots": {s: 0 for s in STAGE_RULES.keys()},
+            "delivered_question_counts": {s: 0 for s in STAGE_RULES.keys()},
+            "answered_question_counts": {s: 0 for s in STAGE_RULES.keys()},
             "stage_question_counts": {s: 0 for s in STAGE_RULES.keys()},
             "stage_substantive_turn_counts": {s: 0 for s in STAGE_RULES.keys()},
             "total_questions_asked": 0,
+            "delivered_question_ids": [],
+            "answered_question_ids": [],
             "active_problem_id": None,
             "problem_presented": False,
             "problem_discussed": False,
@@ -96,6 +108,27 @@ class InterviewOrchestrator:
             result = await self.graph.ainvoke(initial_state, config=config)
             return result
 
+    async def process_transcript_turn(
+        self,
+        session_id: str,
+        speaker: str,
+        content: str,
+        stage: Optional[str] = None,
+        completion_status: str = "complete",
+        event_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Authoritative entrypoint for transcript turns into the LangGraph orchestrator."""
+        actor: EventActor = "CANDIDATE" if speaker == "CANDIDATE" else "GEMINI"
+        event = OrchestratorEvent(
+            event_id=event_id or OrchestratorEvent.__fields__["event_id"].default_factory(),
+            type="TRANSCRIPT_TURN_COMMITTED",
+            actor=actor,
+            stage=stage,
+            question_text=content,
+            completion_status=completion_status,
+        )
+        return await self.dispatch_event(session_id, event)
+
     async def record_question_asked(
         self,
         session_id: str,
@@ -103,6 +136,7 @@ class InterviewOrchestrator:
         stage: Optional[str] = None,
         actor: EventActor = "GEMINI",
         event_id: Optional[str] = None,
+        completion_status: str = "complete",
     ) -> Dict[str, Any]:
         """Record that an interview question was asked to the candidate."""
         event = OrchestratorEvent(
@@ -111,6 +145,7 @@ class InterviewOrchestrator:
             actor=actor,
             stage=stage,
             question_text=question_text,
+            completion_status=completion_status,
         )
         return await self.dispatch_event(session_id, event)
 
@@ -245,8 +280,9 @@ class InterviewOrchestrator:
             decision = validate_transition_guard(state, rule.next_stage)
             is_eligible = decision.allowed
 
-        # Hard ceiling override: If stage question count reached maximum, force transition eligibility
-        if max_q > 0 and q_count >= max_q:
+        # Hard ceiling override: If stage question count reached maximum, check eligibility
+        # But NEVER override if recovery is pending or question is unanswered!
+        if max_q > 0 and q_count >= max_q and not state.get("recovery_required", False) and state.get("pending_question_id") is None:
             is_eligible = True
 
         guidance_dict = state.get("latest_guidance") or {}
@@ -269,6 +305,13 @@ class InterviewOrchestrator:
         rec_probe = guidance_dict.get("recommended_probe")
         instructions = guidance_dict.get("instructions", [])
 
+        pending_qid = state.get("pending_question_id")
+        pending_qtext = state.get("pending_question_text")
+        active_q = state.get("active_questions", {})
+        attempts = 0
+        if pending_qid and pending_qid in active_q:
+            attempts = active_q[pending_qid].get("recovery_attempts", 0)
+
         return InterviewerContext(
             stage=current_stage,
             questions_asked_in_stage=q_count,
@@ -276,6 +319,13 @@ class InterviewOrchestrator:
             maximum_questions=max_q,
             transition_eligible=is_eligible,
             transition_allowed=is_eligible,
+            speech_state=state.get("speech_state", "NORMAL"),
+            recovery_required=state.get("recovery_required", False),
+            recovery_reason=state.get("recovery_reason"),
+            recovery_attempts=attempts,
+            max_recovery_attempts=state.get("max_recovery_attempts", 2),
+            pending_question_id=pending_qid,
+            pending_question_text=pending_qtext,
             active_problem_id=state.get("active_problem_id"),
             problem_presented=state.get("problem_presented", False),
             problem_discussed=state.get("problem_discussed", False),

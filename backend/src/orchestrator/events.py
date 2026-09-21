@@ -6,6 +6,14 @@ from pydantic import BaseModel, Field
 EventType = Literal[
     "SESSION_INITIALIZED",
     "QUESTION_ASKED",
+    "TRANSCRIPT_TURN_COMMITTED",
+    "QUESTION_STARTED",
+    "QUESTION_DELIVERED",
+    "QUESTION_INTERRUPTED",
+    "CANDIDATE_TURN_EVALUATED",
+    "RECOVERY_TRIGGERED",
+    "RECOVERY_RESOLVED",
+    "RECOVERY_EXHAUSTED",
     "GUIDANCE_RECEIVED",
     "PROBLEM_PRESENTED",
     "PROBLEM_DISCUSSED",
@@ -30,6 +38,11 @@ class OrchestratorEvent(BaseModel):
     actor: EventActor = "GEMINI"
     stage: Optional[str] = None
     question_text: Optional[str] = None
+    question_id: Optional[str] = None
+    completion_status: Optional[str] = None
+    candidate_intent: Optional[str] = None
+    recovery_reason: Optional[str] = None
+    is_substantive: Optional[bool] = None
     target_stage: Optional[str] = None
     requested_by: Optional[EventActor] = None
     transition_reason: Optional[str] = None

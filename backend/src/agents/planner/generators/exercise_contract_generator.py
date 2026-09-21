@@ -138,10 +138,18 @@ class ExerciseContractGenerator:
 
         try:
             resp = self.client.call_gemini_with_retry(_call, operation_name="Generate Exercise Contract (Gemini Flash)")
+            contract_obj = None
             if resp.parsed and isinstance(resp.parsed, CodingExerciseContract):
-                return resp.parsed
-            if resp.text:
-                return CodingExerciseContract(**json.loads(resp.text))
+                contract_obj = resp.parsed
+            elif resp.text:
+                contract_obj = CodingExerciseContract(**json.loads(resp.text))
+            
+            if contract_obj:
+                if not contract_obj.technology_environment:
+                    contract_obj.technology_environment = ecosystem
+                elif not contract_obj.technology_environment.file_extension:
+                    contract_obj.technology_environment.file_extension = target_ext
+                return contract_obj
             raise RuntimeError("Gemini Flash returned empty exercise contract.")
         except Exception as e:
             if diagnostic_list is not None:

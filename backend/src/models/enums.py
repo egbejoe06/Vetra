@@ -24,6 +24,48 @@ class TranscriptSpeaker(str, Enum):
     SYSTEM = "SYSTEM"
 
 
+class TurnCompletionStatus(str, Enum):
+    COMPLETE = "complete"
+    INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class CandidateTurnIntent(str, Enum):
+    ANSWER = "answer"
+    CLARIFICATION_REQUEST = "clarification_request"
+    REPETITION_REQUEST = "repetition_request"
+    AUDIO_CHECK = "audio_check"
+    GREETING = "greeting"
+    INTERRUPTION = "interruption"
+    OFF_TOPIC = "off_topic"
+
+
+class RecoveryReason(str, Enum):
+    AUDIO_INTERRUPTION = "AUDIO_INTERRUPTION"
+    AUDIO_CHECK = "AUDIO_CHECK"
+    QUESTION_CLARIFICATION = "QUESTION_CLARIFICATION"
+    RECOVERY_EXHAUSTED = "RECOVERY_EXHAUSTED"
+
+
+class QuestionLifecycleStatus(str, Enum):
+    CREATED = "CREATED"
+    PRESENTING = "PRESENTING"
+    INTERRUPTED = "INTERRUPTED"
+    RECOVERING = "RECOVERING"
+    DELIVERED = "DELIVERED"
+    ANSWERED = "ANSWERED"
+    COULD_NOT_DELIVER = "COULD_NOT_DELIVER"
+
+
+class SpeechState(str, Enum):
+    NORMAL = "NORMAL"
+    GEMINI_SPEAKING = "GEMINI_SPEAKING"
+    SPEECH_INTERRUPTED = "SPEECH_INTERRUPTED"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    GEMINI_REPEATING = "GEMINI_REPEATING"
+
+
 class InterviewStatus(str, Enum):
     SCHEDULED = "SCHEDULED"
     ACTIVE = "ACTIVE"

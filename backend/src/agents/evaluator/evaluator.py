@@ -152,6 +152,10 @@ You are evaluating a 3-5 turn slice of an ongoing software engineering interview
    - Do NOT ask the candidate to rephrase, repeat, or answer the same concept again.
    - If the candidate provided an explanation (even if brief or partial), record an observation and evaluate what they gave.
    - Each probe MUST have a strict turn expiration. Set 'expires_after_turn' to at most current turn + 2.
+10. CONNECTIVITY, INTERRUPTION & REPETITION EXCLUSION (CRITICAL):
+   - Interrupted speech, audio checks ('can you hear me'), repetition requests ('can you repeat that', 'you cut out'), and clarification requests ('what do you mean by...') are non-substantive operational dialogue turns.
+   - NEVER evaluate them as candidate technical answers or score them as technical weaknesses/penalties.
+   - If a question was interrupted or could not be delivered due to network disruptions, do NOT evaluate it as 'NO_ANSWER' or candidate failure.
 
 ### CONTEXT
 Current Stage: {batch_input.current_stage.value if hasattr(batch_input.current_stage, 'value') else batch_input.current_stage}

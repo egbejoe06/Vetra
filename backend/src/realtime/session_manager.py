@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.db.supabase import supabase
-from src.models.enums import InterviewStage, TranscriptSpeaker
+from src.models.enums import InterviewStage, TranscriptSpeaker, TurnCompletionStatus
 from src.orchestrator.engine import interview_orchestrator
 from src.realtime.audio_bridge import base64_to_pcm
 from src.realtime.event_router import RealtimeEventRouter
@@ -375,6 +375,14 @@ class RealtimeSessionManager:
 
     async def _handle_gemini_interrupted(self) -> None:
         """Notify browser client to clear Web Audio playback queue on candidate barge-in."""
+        # Commit pending interviewer buffer as INTERRUPTED so orchestrator tracks speech interruption
+        interviewer_buf = transcript_service.get_current_buffer(self.session_id, TranscriptSpeaker.INTERVIEWER)
+        if interviewer_buf and interviewer_buf.strip():
+            await transcript_service.commit_turn(
+                self.session_id,
+                TranscriptSpeaker.INTERVIEWER,
+                completion_status=TurnCompletionStatus.INTERRUPTED,
+            )
         await RealtimeEventRouter.send_interruption(self.websocket)
 
     async def _handle_gemini_transcript(
@@ -493,6 +501,18 @@ class RealtimeSessionManager:
             f"Unexpected Gemini Live disconnection for session {self.session_id} (error: {error}). "
             "Attempting automatic session resumption..."
         )
+        # Flush any partial uncommitted interviewer speech as INTERRUPTED
+        try:
+            interviewer_buf = transcript_service.get_current_buffer(self.session_id, TranscriptSpeaker.INTERVIEWER)
+            if interviewer_buf and interviewer_buf.strip():
+                await transcript_service.commit_turn(
+                    self.session_id,
+                    TranscriptSpeaker.INTERVIEWER,
+                    completion_status=TurnCompletionStatus.INTERRUPTED,
+                )
+        except Exception as flush_err:
+            logger.debug(f"Error committing interrupted buffer on unexpected disconnect: {flush_err}")
+
         try:
             await RealtimeEventRouter.send_session_status(
                 self.websocket,

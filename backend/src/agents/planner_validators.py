@@ -94,7 +94,15 @@ def validate_contract(contract: CodingExerciseContract) -> Tuple[bool, List[str]
     if not contract.interviewer_strategy.expected_reasoning:
         errors.append("Contract interviewer_strategy.expected_reasoning must contain at least 1 expected diagnostic step.")
 
-    if not contract.implementation_constraints.language:
+    # Validate technology environment / language constraints
+    if contract.technology_environment:
+        te = contract.technology_environment
+        if not te.primary_language or len(te.primary_language.strip()) == 0:
+            errors.append("Contract technology_environment.primary_language must be specified.")
+        # Synchronize implementation_constraints.language if empty
+        if not contract.implementation_constraints.language and te.primary_language:
+            contract.implementation_constraints.language = te.primary_language
+    elif not contract.implementation_constraints.language:
         errors.append("Contract implementation_constraints must specify a target programming language.")
 
     return len(errors) == 0, errors

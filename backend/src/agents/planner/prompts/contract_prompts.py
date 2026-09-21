@@ -42,7 +42,10 @@ def build_contract_system_instruction(
         "5. INTERVIEWER EVALUATION STRATEGY:\n"
         "   - Opening question: A conversational, non-spoiler prompt that presents the observed symptoms and invites the candidate to diagnose.\n"
         "   - Expected reasoning: Sequential reasoning milestones the candidate should verbally hit.\n"
-        "   - Follow-up areas: Trade-offs, edge cases, and production remediation questions."
+        "   - Follow-up areas: Trade-offs, edge cases, and production remediation questions.\n\n"
+        "6. ARCHITECT THE TECHNOLOGY ENVIRONMENT:\n"
+        "   - As part of the contract, YOU decide the optimal Technology Environment (primary_language, file_extension, framework, domain_libraries, infrastructure_dependencies, selection_rationale) that best exposes the defect and competencies.\n"
+        "   - Do NOT settle for generic toy setups. Select authentic production packages and transport primitives that make the causal mechanism verifiable."
     )
 
     if not include_json_schema:
@@ -58,6 +61,14 @@ def build_contract_system_instruction(
         '    "domain": "Detailed domain description (e.g., Distributed Document Indexing Service)",\n'
         '    "context": "Architectural background, throughput, and system topology",\n'
         '    "incident": "Observed production incident report and user symptoms"\n'
+        '  },\n'
+        '  "technology_environment": {\n'
+        f'    "primary_language": "{target_lang}",\n'
+        f'    "file_extension": "{target_ext}",\n'
+        f'    "framework": "{ecosystem.framework or "FastAPI"}",\n'
+        '    "domain_libraries": ["asyncio", "websockets", "pydantic"],\n'
+        '    "infrastructure_dependencies": ["WebSocket Duplex Audio Stream"],\n'
+        '    "selection_rationale": "Why this specific environment is optimal for probing this defect"\n'
         '  },\n'
         '  "candidate_should_be_tested_on": [\n'
         '    "Concurrency hazard identification",\n'
@@ -151,15 +162,22 @@ def build_contract_user_prompt(
     )
     seniority_guidance = get_seniority_complexity_guidance(seniority_diff)
 
+    tech_focus_str = ', '.join(job_spec.technical_focus) if job_spec.technical_focus else 'General Backend / Distributed Systems'
+    domain_libs_str = ', '.join(ecosystem.domain_libraries) if ecosystem.domain_libraries else 'Standard idiomatic libraries'
+    infra_deps_str = ', '.join(ecosystem.infrastructure_dependencies) if ecosystem.infrastructure_dependencies else 'Standard persistence / in-memory'
+
     return (
         f"TARGET ROLE: {job_spec.job_title} (Resolved Difficulty: {seniority_diff.value} — {seniority_reason})\n"
         f"SENIORITY CONTRACT GUIDANCE:\n{seniority_guidance}\n\n"
         f"JOB DESCRIPTION:\n{job_desc}\n"
-        f"TECHNICAL FOCUS: {', '.join(job_spec.technical_focus)}\n"
-        f"TARGET ECOSYSTEM: Language={target_lang}, Framework={ecosystem.framework}, Libraries={', '.join(ecosystem.domain_libraries)}, Infra={', '.join(ecosystem.infrastructure_dependencies)}\n"
-        f"REQUIRED PROGRAMMING LANGUAGE: {target_lang} (Files must use '{target_ext}')\n"
+        f"ROLE TECHNICAL FOCUS: {tech_focus_str}\n"
+        f"BASELINE TECHNOLOGY ENVIRONMENT:\n"
+        f"- Target Primary Language: {target_lang} (Files should use '{target_ext}')\n"
+        f"- Baseline Framework Reference: {ecosystem.framework or 'Idiomatic modern framework'}\n"
+        f"- Baseline Libraries Reference: {domain_libs_str}\n"
+        f"- Baseline Infra Reference: {infra_deps_str}\n\n"
         f"CANDIDATE NAME: {profile.candidate_name}\n"
-        f"TECH STACK: {', '.join(profile.skills + profile.frameworks_and_tools)}\n"
+        f"CANDIDATE TECH STACK: {', '.join(profile.skills + profile.frameworks_and_tools)}\n"
         f"WORK EXPERIENCE:\n{work_summary}\n"
         f"CLAIMED PROJECTS:\n{projects_summary}\n"
         f"ROLE ARCHETYPE: {blueprint.role_archetype}\n"
@@ -167,8 +185,9 @@ def build_contract_user_prompt(
         f"{retry_hint}\n\n"
         f"Generate the comprehensive {schema_target} adherence to all design principles:\n"
         f"1. Ground directly in the candidate's actual projects/experience and the target role ecosystem.\n"
-        f"2. Specify at least 2 distinct interacting components with realistic architectural responsibilities across 2-3 files.\n"
-        f"3. Specify at least 3 failure requirements forming a non-obvious causal mechanism (trigger, cause, symptom, why non-obvious).\n"
-        f"4. Define conversational interviewer diagnostic strategy and concrete follow-up areas.\n"
-        f"5. Ban toy mocks and stubs in the implementation constraints avoid list."
+        f"2. Architect the 'technology_environment' choosing the specific language ({target_lang}), framework, domain libraries, and infrastructure/transport that best exposes the defect.\n"
+        f"3. Specify at least 2 distinct interacting components with realistic architectural responsibilities across 2-3 files.\n"
+        f"4. Specify at least 3 failure requirements forming a non-obvious causal mechanism (trigger, cause, symptom, why non-obvious).\n"
+        f"5. Define conversational interviewer diagnostic strategy and concrete follow-up areas.\n"
+        f"6. Ban toy mocks and stubs in the implementation constraints avoid list."
     )

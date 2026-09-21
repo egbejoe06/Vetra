@@ -117,8 +117,43 @@ def validate_transition_guard(
                 next_allowed_stage=rule.next_stage,
             )
 
+    # 2b. Block stage transition if recovery is active or a question is awaiting an answer
+    if requested_by not in ("RECRUITER", "SYSTEM"):
+        if state.get("recovery_required", False):
+            recovery_reason = state.get("recovery_reason") or "unresolved interruption"
+            return TransitionDecision(
+                allowed=False,
+                current_stage=current_stage,
+                requested_stage=requested_stage,
+                requested_by=requested_by,
+                reason=(
+                    f"INTERVIEWER_RECOVERY_PENDING: Cannot advance from '{current_stage}' while "
+                    f"interviewer recovery is active ({recovery_reason})."
+                ),
+                remaining_questions=1,
+                next_allowed_stage=rule.next_stage,
+            )
+
+        if state.get("pending_question_id") is not None:
+            pending_qid = state.get("pending_question_id")
+            return TransitionDecision(
+                allowed=False,
+                current_stage=current_stage,
+                requested_stage=requested_stage,
+                requested_by=requested_by,
+                reason=(
+                    f"PENDING_QUESTION: Cannot advance from '{current_stage}' while question "
+                    f"'{pending_qid}' is awaiting a candidate answer."
+                ),
+                remaining_questions=1,
+                next_allowed_stage=rule.next_stage,
+            )
+
     # 3. Check minimum question floor
-    questions_in_stage = state.get("stage_question_counts", {}).get(current_stage, 0)
+    questions_in_stage = (
+        state.get("stage_question_slots", {}).get(current_stage)
+        or state.get("stage_question_counts", {}).get(current_stage, 0)
+    )
     if questions_in_stage < rule.min_questions and requested_by not in ("RECRUITER", "SYSTEM"):
         rem = rule.min_questions - questions_in_stage
         return TransitionDecision(

@@ -146,9 +146,11 @@ class CodingExerciseEvaluation(BaseModel):
 
 class TechnologyEnvironment(BaseModel):
     primary_language: str = Field(default="python", description="Primary programming language")
+    file_extension: Optional[str] = Field(default=None, description="Standard file extension including dot, e.g. .py, .ts, .go")
     framework: Optional[str] = Field(default=None, description="Primary runtime framework (e.g. FastAPI, NestJS, React, Express, Gin)")
-    domain_libraries: List[str] = Field(default_factory=list, description="Specific ecosystem libraries (e.g. LangGraph, OpenAI SDK, Pydantic, Prisma)")
-    infrastructure_dependencies: List[str] = Field(default_factory=list, description="Backing services context (e.g. Redis, PostgreSQL, Vector DB)")
+    domain_libraries: List[str] = Field(default_factory=list, description="Specific ecosystem libraries (e.g. LangGraph, OpenAI SDK, Pydantic, Prisma, WebSockets)")
+    infrastructure_dependencies: List[str] = Field(default_factory=list, description="Backing services or transport context (e.g. Redis, PostgreSQL, Vector DB, WebSocket duplex stream)")
+    selection_rationale: Optional[str] = Field(default=None, description="Why this tech environment best exposes the competency and defect")
 
 
 
@@ -182,6 +184,10 @@ class CodingExerciseContract(BaseModel):
     required: bool = True
     objective: str
     scenario: ExerciseScenario
+    technology_environment: Optional[TechnologyEnvironment] = Field(
+        default=None,
+        description="Planner-designed technology environment optimal for exposing the failure mechanism",
+    )
     candidate_should_be_tested_on: List[str] = Field(default_factory=list)
     architecture_requirements: List[str] = Field(default_factory=list)
     failure_requirements: List[str] = Field(default_factory=list)

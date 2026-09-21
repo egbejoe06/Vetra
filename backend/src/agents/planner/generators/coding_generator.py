@@ -78,6 +78,8 @@ class CodingExerciseGenerator:
                     if is_valid:
                         if contract:
                             ex.contract = contract
+                            if getattr(contract, "technology_environment", None) and not ex.technology_environment:
+                                ex.technology_environment = contract.technology_environment
                         exercise = ex
                         break
                     last_gemini_errors = errors
@@ -129,6 +131,8 @@ class CodingExerciseGenerator:
                             if is_valid:
                                 if contract:
                                     ex.contract = contract
+                                    if getattr(contract, "technology_environment", None) and not ex.technology_environment:
+                                        ex.technology_environment = contract.technology_environment
                                 exercise = ex
                                 break
                             last_kimi_errors = errors
@@ -168,10 +172,16 @@ class CodingExerciseGenerator:
         diagnostic_list: Optional[List[Dict[str, Any]]] = None,
         previous_exercises: Optional[List[str]] = None,
         contract: Optional[CodingExerciseContract] = None,
-    ) -> CodingExerciseAsset:
-        target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
-        if contract and contract.implementation_constraints and contract.implementation_constraints.language:
-            target_lang = contract.implementation_constraints.language
+    ) -> Optional[CodingExerciseAsset]:
+        # Resolve target ecosystem: prioritize Planner's designed environment from contract
+        if contract and getattr(contract, "technology_environment", None):
+            ecosystem = contract.technology_environment
+            target_lang = ecosystem.primary_language or "python"
+            target_ext = ecosystem.file_extension or (".py" if target_lang.lower() == "python" else ".ts")
+        else:
+            target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
+            if contract and contract.implementation_constraints and contract.implementation_constraints.language:
+                target_lang = contract.implementation_constraints.language
 
         system_instruction = build_coding_exercise_system_instruction(target_lang, target_ext, ecosystem, include_json_schema=False)
         if contract:
@@ -260,9 +270,15 @@ class CodingExerciseGenerator:
                 })
             return None
 
-        target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
-        if contract and contract.implementation_constraints and contract.implementation_constraints.language:
-            target_lang = contract.implementation_constraints.language
+        # Resolve target ecosystem: prioritize Planner's designed environment from contract
+        if contract and getattr(contract, "technology_environment", None):
+            ecosystem = contract.technology_environment
+            target_lang = ecosystem.primary_language or "python"
+            target_ext = ecosystem.file_extension or (".py" if target_lang.lower() == "python" else ".ts")
+        else:
+            target_lang, target_ext, ecosystem = detect_technology_ecosystem(job_spec, profile)
+            if contract and contract.implementation_constraints and contract.implementation_constraints.language:
+                target_lang = contract.implementation_constraints.language
 
         system_instruction = build_coding_exercise_system_instruction(target_lang, target_ext, ecosystem, include_json_schema=True)
         if contract:

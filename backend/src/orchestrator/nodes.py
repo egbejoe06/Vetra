@@ -2,8 +2,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Literal
 from langgraph.types import Command
 
+from src.models.enums import (
+    CandidateTurnIntent,
+    QuestionLifecycleStatus,
+    RecoveryReason,
+    SpeechState,
+    TurnCompletionStatus,
+)
 from src.orchestrator.guards import validate_transition_guard
 from src.orchestrator.state import InterviewState
+from src.service.intent_classifier import classify_candidate_turn
 
 
 def _finalize_updates(
@@ -47,7 +55,7 @@ def route_event(
 
     event_type = event.get("type")
     match event_type:
-        case "QUESTION_ASKED":
+        case "QUESTION_ASKED" | "TRANSCRIPT_TURN_COMMITTED":
             goto = "record_question"
         case "GUIDANCE_RECEIVED":
             goto = "inject_guidance"
@@ -68,32 +76,177 @@ def route_event(
 
 
 def record_question(state: InterviewState) -> Dict[str, Any]:
-    """Increment stage and total question counters when a question is asked or answered."""
+    """Authoritative semantic turn processing and question lifecycle management."""
     event = state.get("incoming_event", {})
     current_stage = event.get("stage") or state.get("current_stage", "INTRO")
-    content = event.get("question_text", "")
+    content = (event.get("question_text") or event.get("content") or "").strip()
     actor = event.get("actor", "GEMINI")
+    completion_status = event.get("completion_status", TurnCompletionStatus.COMPLETE.value)
 
-    counts = dict(state.get("stage_question_counts", {}))
+    # State copies
+    speech_state = state.get("speech_state", SpeechState.NORMAL.value)
+    recovery_required = state.get("recovery_required", False)
+    recovery_reason = state.get("recovery_reason")
+    max_recovery_attempts = state.get("max_recovery_attempts", 2)
+    pending_question_id = state.get("pending_question_id")
+    pending_question_text = state.get("pending_question_text")
+    active_questions = dict(state.get("active_questions", {}))
+
+    stage_slots = dict(state.get("stage_question_slots", {}))
+    delivered_counts = dict(state.get("delivered_question_counts", {}))
+    answered_counts = dict(state.get("answered_question_counts", {}))
+    stage_question_counts = dict(state.get("stage_question_counts", {}))
     substantive_counts = dict(state.get("stage_substantive_turn_counts", {}))
-    total = state.get("total_questions_asked", 0)
+    total_questions = state.get("total_questions_asked", 0)
+
+    delivered_ids = list(state.get("delivered_question_ids", []))
+    answered_ids = list(state.get("answered_question_ids", []))
+    problem_discussed = state.get("problem_discussed", False)
 
     if actor == "CANDIDATE":
-        words = content.strip().split()
-        is_greeting = any(content.lower().startswith(g) for g in ["hello", "hi vetra", "hi there", "can you hear me"])
-        if len(words) >= 6 and not is_greeting:
+        intent, is_substantive = classify_candidate_turn(content)
+
+        if intent in (CandidateTurnIntent.REPETITION_REQUEST, CandidateTurnIntent.AUDIO_CHECK):
+            # Candidate indicated they could not hear or asked for repetition.
+            # Trigger recovery; candidate turn does NOT consume re-delivery attempt.
+            recovery_required = True
+            recovery_reason = (
+                RecoveryReason.AUDIO_INTERRUPTION.value
+                if intent == CandidateTurnIntent.REPETITION_REQUEST
+                else RecoveryReason.AUDIO_CHECK.value
+            )
+            speech_state = SpeechState.RECOVERY_REQUIRED.value
+            # Substantive turn count is NOT incremented.
+
+        elif intent == CandidateTurnIntent.CLARIFICATION_REQUEST:
+            # Candidate asked for question clarification (e.g. 'What do you mean by scalable?').
+            # Semantic clarification: blocks progression but consumes 0 delivery attempts.
+            recovery_required = True
+            recovery_reason = RecoveryReason.QUESTION_CLARIFICATION.value
+            speech_state = SpeechState.RECOVERY_REQUIRED.value
+            # Substantive turn count is NOT incremented.
+
+        elif intent == CandidateTurnIntent.ANSWER:
+            # Valid candidate technical answer
             substantive_counts[current_stage] = substantive_counts.get(current_stage, 0) + 1
+            if current_stage == "TECHNICAL_EXERCISE":
+                problem_discussed = True
+
+            if pending_question_id:
+                if pending_question_id in active_questions:
+                    active_questions[pending_question_id]["status"] = QuestionLifecycleStatus.ANSWERED.value
+                answered_counts[current_stage] = answered_counts.get(current_stage, 0) + 1
+                if pending_question_id not in answered_ids:
+                    answered_ids.append(pending_question_id)
+                # Clear pending question upon substantive answer
+                pending_question_id = None
+                pending_question_text = None
+                recovery_required = False
+                recovery_reason = None
+                speech_state = SpeechState.NORMAL.value
+
+        else:
+            # Neutral / greeting / interruption / off-topic turn
+            pass
+
     else:
-        counts[current_stage] = counts.get(current_stage, 0) + 1
-        total += 1
+        # Interrupted Gemini speech
+        if completion_status != TurnCompletionStatus.COMPLETE.value:
+            if pending_question_id and pending_question_id in active_questions:
+                q_info = active_questions[pending_question_id]
+                q_info["status"] = QuestionLifecycleStatus.INTERRUPTED.value
+
+                # If Gemini was already in a recovery attempt, this retry failed
+                if recovery_required:
+                    q_info["recovery_attempts"] = q_info.get("recovery_attempts", 0) + 1
+
+                    if q_info["recovery_attempts"] >= max_recovery_attempts:
+                        # Bounded recovery reached; escalate to COULD_NOT_DELIVER
+                        q_info["status"] = QuestionLifecycleStatus.COULD_NOT_DELIVER.value
+                        recovery_required = False
+                        recovery_reason = RecoveryReason.RECOVERY_EXHAUSTED.value
+                        pending_question_id = None
+                        pending_question_text = None
+                        speech_state = SpeechState.NORMAL.value
+                    else:
+                        recovery_required = True
+                        recovery_reason = RecoveryReason.AUDIO_INTERRUPTION.value
+                        speech_state = SpeechState.SPEECH_INTERRUPTED.value
+                else:
+                    recovery_required = True
+                    recovery_reason = RecoveryReason.AUDIO_INTERRUPTION.value
+                    speech_state = SpeechState.SPEECH_INTERRUPTED.value
+            else:
+                recovery_required = True
+                recovery_reason = RecoveryReason.AUDIO_INTERRUPTION.value
+                speech_state = SpeechState.SPEECH_INTERRUPTED.value
+            # ZERO QUOTA CHANGE for interrupted speech
+
+        else:
+            # Gemini turn completed successfully
+            is_question = "?" in content or content.lower().startswith(
+                ("how", "what", "why", "could you", "can you", "tell me", "walk me through", "describe")
+            )
+
+            if is_question:
+                if pending_question_id and pending_question_id in active_questions:
+                    # Existing question re-delivered or clarified
+                    q_info = active_questions[pending_question_id]
+                    if recovery_reason == RecoveryReason.QUESTION_CLARIFICATION.value:
+                        # Clarification was spoken; pending question awaits answer
+                        recovery_required = False
+                        recovery_reason = None
+                        speech_state = SpeechState.NORMAL.value
+                    else:
+                        # Successfully re-delivered an interrupted question
+                        q_info["status"] = QuestionLifecycleStatus.DELIVERED.value
+                        recovery_required = False
+                        recovery_reason = None
+                        speech_state = SpeechState.NORMAL.value
+                        if pending_question_id not in delivered_ids:
+                            delivered_ids.append(pending_question_id)
+                            delivered_counts[current_stage] = delivered_counts.get(current_stage, 0) + 1
+                else:
+                    # Allocate a brand-new stable question_id
+                    current_slots = stage_slots.get(current_stage, 0) + 1
+                    question_id = f"q_{current_stage.lower()}_{current_slots:02d}"
+                    stage_slots[current_stage] = current_slots
+                    stage_question_counts[current_stage] = current_slots
+                    total_questions += 1
+
+                    pending_question_id = question_id
+                    pending_question_text = content
+                    active_questions[question_id] = {
+                        "status": QuestionLifecycleStatus.DELIVERED.value,
+                        "recovery_attempts": 0,
+                        "stage": current_stage,
+                        "text": content,
+                        "turn_ids": [],
+                    }
+                    if question_id not in delivered_ids:
+                        delivered_ids.append(question_id)
+                    delivered_counts[current_stage] = delivered_counts.get(current_stage, 0) + 1
+                    recovery_required = False
+                    recovery_reason = None
+                    speech_state = SpeechState.NORMAL.value
 
     updates: Dict[str, Any] = {
-        "stage_question_counts": counts,
+        "speech_state": speech_state,
+        "recovery_required": recovery_required,
+        "recovery_reason": recovery_reason,
+        "pending_question_id": pending_question_id,
+        "pending_question_text": pending_question_text,
+        "active_questions": active_questions,
+        "stage_question_slots": stage_slots,
+        "delivered_question_counts": delivered_counts,
+        "answered_question_counts": answered_counts,
+        "stage_question_counts": stage_question_counts,
         "stage_substantive_turn_counts": substantive_counts,
-        "total_questions_asked": total,
+        "total_questions_asked": total_questions,
+        "delivered_question_ids": delivered_ids,
+        "answered_question_ids": answered_ids,
+        "problem_discussed": problem_discussed,
     }
-    if current_stage == "TECHNICAL_EXERCISE":
-        updates["problem_discussed"] = True
 
     return _finalize_updates(
         event,
